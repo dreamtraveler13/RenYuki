@@ -1,12 +1,22 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GameScript, GeneratedAssets, SpeakerType, Choice, StoryNode, UserProfile } from '../types';
+import { GameScript, GeneratedAssets, SpeakerType, Choice, StoryNode, UserProfile, SaveFile } from '../types';
 import Button from './Button';
 import Typewriter from './Typewriter';
 import { saveGame } from '../services/storageService';
+import { publishPlazaGame } from '../services/plazaService';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+const AUDIO_LIBRARY: Record<string, string> = {
+  bgm_bossa: "/music/song1.mp3",
+  bgm_playful: "/music/song2.mp3",
+  bgm_piano: "/music/song3.mp3",
+  bgm_night: "/music/song4.mp3",
+  bgm_sad: "/music/song5.mp3",
+  bgm_dream: "/music/song6.mp3",
+  bgm_morning: "/music/song7.mp3",
+};
 
 interface Props {
   script: GameScript;
@@ -33,6 +43,13 @@ const decodeStandardAudio = async (base64Data: string, audioContext: AudioContex
   return await audioContext.decodeAudioData(bytes.buffer);
 };
 
+const decodeUrlAudio = async (url: string, audioContext: AudioContext): Promise<AudioBuffer> => {
+  const resp = await fetch(url, { cache: 'force-cache' });
+  if (!resp.ok) throw new Error(`Audio fetch failed: ${resp.status}`);
+  const buf = await resp.arrayBuffer();
+  return await audioContext.decodeAudioData(buf);
+};
+
 const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initialNodeId, initialAffinity, onExit, onGameEnd, isTouchDevice }) => {
   const [runtimeScript, setRuntimeScript] = useState<GameScript>(script);
   const [hasStarted, setHasStarted] = useState(false);
@@ -46,6 +63,8 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const [showEndingCoverModal, setShowEndingCoverModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishMessage, setPublishMessage] = useState<string | null>(null);
   const [currentBgmKey, setCurrentBgmKey] = useState<string | null>(null);
   const [continueError, setContinueError] = useState<string | null>(null);
   const [isContinuing, setIsContinuing] = useState(false);
@@ -60,6 +79,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const audioContextRef = useRef<AudioContext | null>(null);
   const bgmSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const bgmGainRef = useRef<GainNode | null>(null);
+  const bgmBufferCacheRef = useRef<Record<string, AudioBuffer>>({});
   const isRestoringHistoryRef = useRef(false);
 
   useEffect(() => {
@@ -146,16 +166,20 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
 
     const playBgm = async (key: string) => {
         // 1. Validation
-        if (!assets.music[key]) {
-             return;
-        }
-        
+        if (!assets.music[key] && !AUDIO_LIBRARY[key]) return;
+
         // 2. Skip if already playing this track (Continuous Playback)
         if (currentBgmKey === key) return;
 
         try {
             // 3. Decode FIRST to ensure smooth transition (No gap/silence during loading)
-            const buffer = await decodeStandardAudio(assets.music[key], audioContextRef.current!);
+            const cached = bgmBufferCacheRef.current[key];
+            const buffer =
+              cached ||
+              (assets.music[key]
+                ? await decodeStandardAudio(assets.music[key], audioContextRef.current!)
+                : await decodeUrlAudio(AUDIO_LIBRARY[key], audioContextRef.current!));
+            if (!cached) bgmBufferCacheRef.current[key] = buffer;
             
             if (audioContextRef.current?.state === 'closed') return;
             const ctx = audioContextRef.current!;
@@ -215,7 +239,9 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
              // Case B: No music playing yet (Start of game), and first node has no BGM.
              // Action: Play Default (bgm_bossa or first available).
              targetKey = 'bgm_bossa';
-             if (!assets.music[targetKey]) targetKey = Object.keys(assets.music)[0];
+             if (!assets.music[targetKey] && !AUDIO_LIBRARY[targetKey]) {
+               targetKey = Object.keys(assets.music)[0] || Object.keys(AUDIO_LIBRARY)[0];
+             }
         }
     }
 
@@ -293,6 +319,33 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
     } finally {
       setIsSaving(false);
       setTimeout(() => setSaveMessage(null), 2000);
+    }
+  };
+
+  const handlePublishToPlaza = async () => {
+    if (isPublishing) return;
+    setIsPublishing(true);
+    setPublishMessage(null);
+    try {
+      const saveData: SaveFile = {
+        id: Date.now(),
+        title: runtimeScript.title || 'Untitled Story',
+        date: new Date().toLocaleString('zh-CN'),
+        heroineName: runtimeScript.heroineName,
+        affinity,
+        currentNodeId,
+        script: runtimeScript,
+        assets,
+        userProfile,
+        memoryCoverBase64: endingCover || undefined,
+      };
+      await publishPlazaGame(saveData);
+      setPublishMessage('已上传到嘎拉广场');
+    } catch (err: any) {
+      setPublishMessage(err?.message || '上传失败');
+    } finally {
+      setIsPublishing(false);
+      setTimeout(() => setPublishMessage(null), 3500);
     }
   };
 
@@ -774,10 +827,10 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
               </p>
             )}
             <div className="space-y-4">
-                <Button onClick={handleSaveGame} className="w-full" disabled={isSaving} isTouch={isTouchDevice}>
-                    {isSaving ? "正在存档..." : "存档记录"}
+                <Button onClick={handlePublishToPlaza} className="w-full" disabled={isPublishing} isTouch={isTouchDevice}>
+                    {isPublishing ? "正在上传..." : "上传到嘎拉广场"}
                 </Button>
-                {saveMessage && <p className="text-green-600 font-mono-tech text-xs">{saveMessage}</p>}
+                {publishMessage && <p className="text-green-600 font-mono-tech text-xs">{publishMessage}</p>}
                 <Button onClick={onExit} variant="secondary" className="w-full" isTouch={isTouchDevice}>返回根目录</Button>
             </div>
          </div>

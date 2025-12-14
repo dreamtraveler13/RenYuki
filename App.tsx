@@ -1,90 +1,33 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GameState, GameScript, GeneratedAssets, UserProfile, SaveFile } from './types';
+import { AccountUser, GameState, GameScript, GeneratedAssets, SaveFile, UserProfile } from './types';
+import BuyCoinsModal from './components/BuyCoinsModal';
+import GalaPlazaModal from './components/GalaPlazaModal';
 import GameCreationWizard from './components/GameCreationWizard';
 import VisualNovelPlayer from './components/VisualNovelPlayer';
 import LoginScreen from './components/LoginScreen';
 import DevConsole from './components/DevConsole';
 import Button from './components/Button';
 import { getSaveList, deleteSave, restoreSave } from './services/storageService';
-import payImg1 from './pay/pay1.png';
-import payImg2 from './pay/pay2.png';
-import payImg3 from './pay/pay3.png';
-import payImg4 from './pay/pay4.png';
-import payImg5 from './pay/pay5.png';
-import payQr from './pay/pay.png';
-
-const toSrc = (img: any): string => (typeof img === 'string' ? img : img?.src || '');
-const PAY_IMAGES = [payImg1, payImg2, payImg3, payImg4, payImg5].map(toSrc);
-
-const DelayedButton: React.FC<{ onConfirm: () => void }> = ({ onConfirm }) => {
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    setReady(false);
-    const timer = setTimeout(() => setReady(true), 6000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  return (
-    <Button
-      onClick={onConfirm}
-      disabled={!ready}
-      className={`w-full text-base md:text-lg py-3 transition-all ${ready ? 'opacity-100' : 'opacity-60 cursor-not-allowed'}`}
-    >
-      我已打赏，开始游玩
-    </Button>
-  );
-};
-type ShardPos = { top?: string; left?: string; right?: string; bottom?: string; rotate: string; scale: number };
-const SHARD_POSITIONS: ShardPos[] = [
-  // 环绕中心分布，留出中央空间给弹窗和二维码
-  { top: '6%', left: '32%', rotate: '-10deg', scale: 1.1 },
-  { top: '18%', left: '8%', rotate: '-6deg', scale: 1.05 },
-  { top: '18%', right: '8%', rotate: '8deg', scale: 1.05 },
-  { bottom: '10%', left: '20%', rotate: '-9deg', scale: 1.15 },
-  { bottom: '10%', right: '20%', rotate: '9deg', scale: 1.15 },
-];
+import { authLogout, authMe } from './services/accountService';
+import { publishPlazaGame } from './services/plazaService';
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 };
 
-type AuthorStatus = {
-  code: 'school' | 'sleep' | 'dev';
-  title: string;
-  subtitle: string;
-};
-
-const getAuthorStatus = (now = new Date()): AuthorStatus => {
-  const day = now.getDay(); // 0 = Sun, 6 = Sat
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  const isWeekday = day >= 1 && day <= 5;
-
-  if (isWeekday) {
-    if (minutes >= 23 * 60 || minutes < 6 * 60 + 40) {
-      return { code: 'sleep', title: '睡觉中', subtitle: '别吵' };
-    }
-    if (minutes >= 6 * 60 + 40 && minutes < 20 * 60) {
-      return { code: 'school', title: '上学中', subtitle: '上课想点子' };
-    }
-    return { code: 'dev', title: '放学了', subtitle: '估计在开发网站/抖音' };
-  }
-
-  // Weekend
-  if (minutes < 8 * 60) {
-    return { code: 'sleep', title: '睡觉中', subtitle: '别吵' };
-  }
-  return { code: 'dev', title: '周末网站/游戏/抖音', subtitle: '给我买杯奶茶吧'};
-};
-
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(GameState.HOME);
   const [authToken, setAuthToken] = useState<string>('');
-  // Set isLoggedIn to true by default to bypass initialization screen
-  const [isLoggedIn, setIsLoggedIn] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
+  const [showBuyCoins, setShowBuyCoins] = useState(false);
+  const [showPlaza, setShowPlaza] = useState(false);
+  const [publishingSaveId, setPublishingSaveId] = useState<number | null>(null);
+  const [publishMessage, setPublishMessage] = useState<string | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [showIosPrompt, setShowIosPrompt] = useState(false);
   const [isPortrait, setIsPortrait] = useState(false);
@@ -104,26 +47,12 @@ const App: React.FC = () => {
   const [initialAffinity, setInitialAffinity] = useState<number | undefined>(undefined);
 
   const [galleryHeroines, setGalleryHeroines] = useState<{name: string, image: string, id: number}[]>([]);
-  const [authorStatus, setAuthorStatus] = useState<AuthorStatus>(() => getAuthorStatus());
-  const [showAuthorPanel, setShowAuthorPanel] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [playCount, setPlayCount] = useState<number>(() => {
-    if (typeof window === 'undefined') return 0;
-    const stored = localStorage.getItem('playCount');
-    const parsed = stored ? parseInt(stored, 10) : 0;
-    return Number.isNaN(parsed) ? 0 : parsed;
-  });
-  const [showPayGate, setShowPayGate] = useState(false);
-
-  const authorTheme: Record<AuthorStatus['code'], { bg: string; text: string; glow: string }> = {
-    dev: { bg: 'bg-emerald-500', text: 'text-white', glow: 'shadow-[0_0_20px_rgba(16,185,129,0.4)]' },
-    school: { bg: 'bg-sky-500', text: 'text-white', glow: 'shadow-[0_0_20px_rgba(14,165,233,0.4)]' },
-    sleep: { bg: 'bg-slate-800', text: 'text-white', glow: 'shadow-[0_0_20px_rgba(51,65,85,0.4)]' },
-  };
+  const coins = accountUser?.coins ?? 0;
 
   const iosPromptOverlay = showIosPrompt ? (
-    <div className="fixed inset-0 z-[30000] bg-black/80 text-white flex items-center justify-center p-6">
-      <div className="bg-white text-black max-w-md w-full border-4 border-black shadow-2xl p-6 space-y-4 animate-pop relative">
+    <div className="fixed inset-0 z-[30000] bg-black/80 text-white flex items-center justify-center p-6 overlay-fade-in">
+      <div className="bg-white text-black max-w-md w-full border-4 border-black shadow-2xl p-6 space-y-4 relative modal-scale-in">
         <h3 className="text-2xl font-black leading-tight">在苹果手机上三步安装到主屏幕</h3>
         <ol className="space-y-2 text-sm leading-relaxed list-decimal list-inside mt-2">
           <li>
@@ -156,8 +85,8 @@ const App: React.FC = () => {
   }
 
   const androidPromptOverlay = showAndroidPrompt && !isStandalone ? (
-    <div className="fixed inset-0 z-[26000] bg-black/80 text-white flex items-center justify-center p-6">
-      <div className="bg-white text-black max-w-md w-full border-4 border-black shadow-2xl p-6 space-y-4 animate-pop relative">
+    <div className="fixed inset-0 z-[26000] bg-black/80 text-white flex items-center justify-center p-6 overlay-fade-in">
+      <div className="bg-white text-black max-w-md w-full border-4 border-black shadow-2xl p-6 space-y-4 relative modal-scale-in">
         <h3 className="text-2xl font-black uppercase leading-tight">安装到主屏幕</h3>
         <p className="text-sm leading-relaxed text-gray-800">
           检测到安卓设备，可一键添加网页到主屏幕，获得全屏体验。
@@ -177,6 +106,27 @@ const App: React.FC = () => {
       </div>
     </div>
   ) : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = await authMe();
+        if (cancelled) return;
+        setAccountUser(user);
+        setIsLoggedIn(true);
+      } catch {
+        if (cancelled) return;
+        setAccountUser(null);
+        setIsLoggedIn(false);
+      } finally {
+        if (!cancelled) setAuthChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     // 1. Touch Detection (use pointer capability, not viewport ratio)
@@ -257,13 +207,6 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const syncStatus = () => setAuthorStatus(getAuthorStatus());
-    syncStatus();
-    const timer = setInterval(syncStatus, 60 * 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
     const loadGallery = async () => {
       try {
         const saves = await getSaveList();
@@ -311,15 +254,10 @@ const App: React.FC = () => {
       });
   }
 
-  const handleNudgeAuthor = () => {
-    setShowAuthorPanel(false);
-    setShowPayGate(true);
-  };
-
-  const handleLogin = (token: string, userProfile?: UserProfile) => {
-    setAuthToken(token);
+  const handleLoggedIn = (user: AccountUser) => {
+    setAccountUser(user);
     setIsLoggedIn(true);
-    if (userProfile && !currentUser) setCurrentUser(userProfile);
+    setAuthChecked(true);
   };
 
   const proceedToGame = (
@@ -329,26 +267,34 @@ const App: React.FC = () => {
     startNodeId?: string,
     startAffinity?: number
   ) => {
-    const nextPlayCount = playCount + 1;
-    setPlayCount(nextPlayCount);
-    localStorage.setItem('playCount', String(nextPlayCount));
-
     setCurrentScript(script);
     setCurrentAssets(assets);
     setCurrentUser(user);
     setInitialNodeId(startNodeId);
     setInitialAffinity(startAffinity);
     setGameState(GameState.PLAYING);
-
-    setShowPayGate(nextPlayCount >= 2);
   };
 
-  const acknowledgeDonation = () => {
-    setShowPayGate(false);
+  const startCreation = () => {
+    if (!accountUser) {
+      setPublishMessage('请登录后创建/生成');
+      return;
+    }
+    setGameState(GameState.CREATING);
   };
-
-  const startCreation = () => setGameState(GameState.CREATING);
   const startDevMode = () => setGameState(GameState.DEV);
+
+  const handleLogout = async () => {
+    try {
+      await authLogout();
+    } catch {}
+    setAuthToken('');
+    setAccountUser(null);
+    setIsLoggedIn(false);
+    setAuthChecked(true);
+    setShowLoadMenu(false);
+    resetGame();
+  };
 
   const handleVoiceReady = (nodeId: string, audioBase64: string) => {
     setPreloadedVoices(prev => ({ ...prev, [nodeId]: audioBase64 }));
@@ -373,6 +319,23 @@ const App: React.FC = () => {
     setCurrentAssets(null);
     setCurrentUser(null);
     setPreloadedVoices({});
+  };
+
+  const handlePublishSaveToPlaza = async (save: SaveFile, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (publishingSaveId) return;
+    setPublishingSaveId(save.id);
+    setPublishMessage(null);
+    try {
+      await publishPlazaGame(save);
+      setPublishMessage('已发布到嘎拉广场');
+      setShowPlaza(true);
+      setShowLoadMenu(false);
+    } catch (err: any) {
+      setPublishMessage(err?.message || '发布失败');
+    } finally {
+      setPublishingSaveId(null);
+    }
   };
 
   const openLoadMenu = async () => {
@@ -440,6 +403,14 @@ const App: React.FC = () => {
     return <DevConsole authKey={activeKey} onExit={() => setGameState(GameState.HOME)} />;
   }
 
+  if (!authChecked) {
+    return (
+      <div className="w-screen h-screen bg-[#f7f7f8] text-gray-600 flex items-center justify-center">
+        <div className="text-sm font-mono-tech">Loading…</div>
+      </div>
+    );
+  }
+
   if (!isLoggedIn) return (
     <>
       <div className="fixed top-4 right-4 z-[9999]">
@@ -455,7 +426,21 @@ const App: React.FC = () => {
       {iosPromptOverlay}
       {androidPromptOverlay}
 
-      <LoginScreen onLogin={handleLogin} onEnterDevMode={() => { setIsLoggedIn(true); setAuthToken(''); startDevMode(); }} />
+      <LoginScreen
+        onLoggedIn={handleLoggedIn}
+        onEnterDevMode={() => {
+          setAuthChecked(true);
+          setIsLoggedIn(true);
+          setAuthToken('');
+          startDevMode();
+        }}
+        onEnterPlazaAsGuest={() => {
+          setAuthChecked(true);
+          setIsLoggedIn(true);
+          setAccountUser(null);
+          setShowPlaza(true);
+        }}
+      />
     </>
   );
 
@@ -464,67 +449,59 @@ const App: React.FC = () => {
       
       {iosPromptOverlay}
       {androidPromptOverlay}
-      
-      {/* Paywall Overlay (2nd generation and later) */}
-      {showPayGate && (
-       <div className="fixed inset-0 z-[20000] bg-black/80 backdrop-blur-lg flex justify-center items-start md:items-center overflow-y-auto p-4 md:p-8">
-           <div className="absolute inset-0 pointer-events-none">
-              {PAY_IMAGES.map((src, idx) => {
-                 const pos = SHARD_POSITIONS[idx % SHARD_POSITIONS.length];
-                 const blurOnCenter = idx === 4; // 背景中心的碎片虚化，避免遮挡主卡片
-                 return (
-                   <img
-                     key={`m-${idx}`}
-                     src={src}
-                     className={`absolute object-cover opacity-80 drop-shadow-[0_0_25px_rgba(255,255,255,0.35)] animate-pop ${blurOnCenter ? 'blur-[4px] scale-110' : ''}`}
-                     style={{
-                       top: pos.top,
-                       left: pos.left,
-                       right: pos.right,
-                       bottom: pos.bottom,
-                       transform: `rotate(${pos.rotate}) scale(${pos.scale})`,
-                       width: '38vw',
-                       maxWidth: '420px',
-                       minWidth: '200px',
-                       borderRadius: '12px',
-                       pointerEvents: 'none'
-                     }}
-                   />
-                 );
-              })}
-           </div>
-           <div
-             className="relative bg-white text-black border-4 border-black px-6 py-8 md:px-10 md:py-12 text-center shadow-[0_0_40px_rgba(255,255,255,0.4)] my-8 overflow-auto rounded-2xl"
-             style={{
-               width: 'min(92vw, 520px)',
-               maxWidth: '720px',
-               maxHeight: '86vh'
-             }}
-           >
-              <h2 className="text-2xl md:text-4xl font-black mb-4 uppercase tracking-tight">打赏一下吧</h2>
-              <div className="text-sm md:text-base text-gray-900 mb-6 leading-relaxed space-y-6">
-                <p className="font-extrabold">
-                  每一次剧情生成、每一张立绘、每一句语音背后，都是真实的服务器成本。
-                </p>
-                <p className="font-extrabold">
-                  我不想把创作变成付费墙，所以选择让所有功能完全开放，让每个人都能创造自己的故事。
-                </p>
-                <p className="font-extrabold">
-                  你的打赏是对我最大的支持——哪怕是一根棒棒糖。
-                </p>
+
+      <BuyCoinsModal
+        open={showBuyCoins}
+        coins={coins}
+        onClose={() => setShowBuyCoins(false)}
+        onCoinsUpdated={(newCoins) =>
+          setAccountUser((prev) => (prev ? { ...prev, coins: newCoins } : prev))
+        }
+      />
+      <GalaPlazaModal
+        open={showPlaza}
+        onClose={() => setShowPlaza(false)}
+        onPlaySave={(save) => {
+          setShowPlaza(false);
+          proceedToGame(save.script, save.assets, save.userProfile, save.currentNodeId, save.affinity);
+        }}
+      />
+
+      {accountUser && gameState !== GameState.PLAYING && (
+        <div className="fixed top-3 right-3 z-[14000] pointer-events-auto">
+          <div className="bg-white/80 backdrop-blur border border-black/10 rounded-2xl shadow-lg px-3 py-2 flex items-center gap-3">
+            <div className="flex flex-col leading-tight">
+              <div className="text-[11px] text-gray-500">账号</div>
+              <div className="text-sm font-semibold text-gray-900 max-w-[12rem] truncate">
+                {accountUser.displayName || accountUser.username}
               </div>
-              <div className="flex justify-center mb-6">
-                <img src={toSrc(payQr)} alt="打赏码" className="w-40 h-40 object-contain border border-black/20 shadow-md bg-white p-2" />
+            </div>
+            <div className="h-8 w-px bg-gray-200" />
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-gray-700">
+                嘎拉币 <span className="font-semibold text-gray-900">{coins}</span>
               </div>
-              <DelayedButton key={showPayGate ? 'pay-open' : 'pay-closed'} onConfirm={acknowledgeDonation} />
-           </div>
+              <button
+                onClick={() => setShowBuyCoins(true)}
+                className="rounded-xl bg-gray-900 text-white text-xs font-semibold px-3 py-2 hover:bg-black transition-colors"
+              >
+                充值
+              </button>
+              <button
+                onClick={handleLogout}
+                className="text-xs text-gray-500 hover:text-gray-900 transition-colors px-1"
+              >
+                退出
+              </button>
+            </div>
+          </div>
         </div>
       )}
       
       {/* GLOBAL: Landscape Enforcement Overlay */}
       {/* Applied globally when logged in to ensure mobile matches desktop layout */}
       {isLoggedIn && isTouchDevice && isPortrait && !showIosPrompt && (
-        <div className="fixed inset-0 z-[11000] bg-[#111] text-white flex flex-col items-center justify-center text-center p-6 animate-fadeIn">
+        <div className="fixed inset-0 z-[11000] bg-[#111] text-white flex flex-col items-center justify-center text-center p-6 overlay-fade-in">
             <div className="text-6xl mb-6 animate-bounce font-mono-tech">↻</div>
             <h2 className="text-2xl font-black uppercase tracking-widest mb-2">请旋转设备</h2>
             <p className="text-gray-500 font-mono-tech text-xs uppercase">请切换到横屏</p>
@@ -534,53 +511,9 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Global Full Screen Toggle (Top Center) */}
-      {gameState === GameState.HOME && !showLoadMenu && (
-        <div className="fixed top-3 right-3 z-[14000] flex flex-col items-end gap-2 pointer-events-auto">
-          <button
-            onClick={() => setShowAuthorPanel((v) => !v)}
-            className={`flex flex-col items-end px-4 py-3 rounded-xl border border-black/10 backdrop-blur ${authorTheme[authorStatus.code].bg} ${authorTheme[authorStatus.code].text} ${authorTheme[authorStatus.code].glow} shadow-lg hover:scale-[1.02] transition-all animate-pulse`}
-          >
-            <div className="text-[11px] uppercase font-mono-tech tracking-wide">作者现在在干嘛？</div>
-            <div className="text-sm md:text-base font-black flex items-center gap-1">
-              <span>{authorStatus.title}</span>
-              <span className="text-xs opacity-80">▶</span>
-            </div>
-            <div className="text-[11px] opacity-80">{authorStatus.subtitle}</div>
-          </button>
-
-          {showAuthorPanel && (
-            <div className="w-80 max-w-[88vw] bg-white/95 backdrop-blur border border-black/10 rounded-2xl shadow-2xl p-4 animate-pop text-left">
-              <div className="text-sm font-black flex items-center gap-2 mb-1">
-                <span className="text-emerald-600">•</span> 实时状态：{authorStatus.title}
-              </div>
-              <p className="text-xs text-gray-600 mb-3">{authorStatus.subtitle}</p>
-              <div className="text-[11px] text-gray-700 space-y-1">
-                <div className="font-bold text-black/80">作息</div>
-                <div>周一-周五 06:40 - 20:00 上学</div>
-                <div>周一-周五 23:00 - 06:40 睡觉</div>
-                <div>周末 00:00 - 08:00 睡觉</div>
-                <div>其他时间 = 网站/游戏/抖音</div>
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <button
-                  onClick={handleNudgeAuthor}
-                  className="text-xs font-bold bg-black text-white rounded-lg py-2 px-3 hover:-translate-y-[1px] hover:shadow-lg transition-all"
-                >
-                  给作者买杯奶茶
-                </button>
-                <button
-                  onClick={() => setShowAuthorPanel(false)}
-                  className="text-xs font-bold bg-gray-100 text-gray-800 rounded-lg py-2 px-3 hover:bg-gray-200 transition-all"
-                >
-                  收起
-                </button>
-              </div>
-              <div className="mt-2 text-[10px] text-gray-500">
-                想催更/有好点子？请作者喝杯奶茶。
-              </div>
-            </div>
-          )}
+      {publishMessage && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[25000] bg-black text-white px-3 py-2 rounded-xl text-xs font-mono-tech toast-slide-in">
+          {publishMessage}
         </div>
       )}
 
@@ -602,7 +535,7 @@ const App: React.FC = () => {
         
         {/* Main Menu State */}
         {gameState === GameState.HOME && !showLoadMenu && (
-          <div className="w-full h-full grid grid-cols-12 animate-fadeIn">
+          <div className="w-full h-full grid grid-cols-12 soft-fade-in">
              
              {/* LEFT: Typography & Nav */}
              <div className="col-span-5 h-full flex flex-col justify-center px-4 md:px-8 lg:px-20 relative bg-white border-r border-black z-20">
@@ -621,14 +554,21 @@ const App: React.FC = () => {
                       02 // 读取记忆
                    </button>
                    <button
-                     onClick={() => setShowPayGate(true)}
+                     onClick={() => setShowPlaza(true)}
                      className="text-lg md:text-xl lg:text-2xl font-bold hover:bg-black hover:text-white px-2 md:px-4 py-2 transition-all -ml-2 md:-ml-4 uppercase tracking-wider text-left"
                    >
-                      03 // 打赏作者
+                      03 // 嘎拉广场
                    </button>
-                   <button onClick={() => { setAuthToken(''); setIsLoggedIn(false); }} className="text-xs md:text-xs lg:text-sm font-mono-tech text-gray-400 hover:text-black mt-4 lg:mt-10">
-                      // 退出登录
+                   <button
+                     onClick={handleLogout}
+                     className="text-xs md:text-xs lg:text-sm font-mono-tech text-gray-400 hover:text-black mt-4 lg:mt-10"
+                   >
+                     // 退出登录
                    </button>
+                </div>
+
+                <div className="mt-10 lg:mt-14 text-[10px] lg:text-[11px] text-gray-400/60 leading-relaxed max-w-md select-none">
+                  本站为 AI 生成内容演示/娱乐用途；请勿上传或生成违法、色情、暴力、侵权或涉及未成年人的内容。由用户输入/上传导致的后果由用户自行承担。
                 </div>
              </div>
 
@@ -671,7 +611,7 @@ const App: React.FC = () => {
 
         {/* Load Menu Overlay */}
         {gameState === GameState.HOME && showLoadMenu && (
-             <div className="absolute inset-0 z-50 bg-white flex flex-col animate-fadeIn">
+             <div className="absolute inset-0 z-50 bg-white flex flex-col soft-fade-in">
                  <div className="h-14 lg:h-20 border-b border-black flex items-center justify-between px-4 lg:px-10 bg-gray-50">
                      <h2 className="text-xl lg:text-3xl font-black uppercase">记忆库</h2>
                      <div className="flex gap-2 lg:gap-4">
@@ -714,21 +654,31 @@ const App: React.FC = () => {
                                            </div>
                                         </div>
                                      </div>
-                                     <div className="absolute top-3 right-3 lg:top-6 lg:right-6 flex gap-2 text-xs lg:text-sm text-white/70 opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                                     <div className="absolute top-3 right-3 lg:top-6 lg:right-6 flex items-center gap-2 z-20">
                                        <button
-                                         onClick={(e) => handleExportSave(save, e)}
-                                         title="下载"
-                                         className="hover:text-white"
+                                         onClick={(e) => handlePublishSaveToPlaza(save, e)}
+                                         title="发布到嘎拉广场"
+                                         className="bg-white text-black hover:bg-white/95 px-3 py-2 rounded-xl font-black shadow-xl border border-black/10"
+                                         disabled={publishingSaveId === save.id}
                                        >
-                                         ⬇
+                                         {publishingSaveId === save.id ? '发布中…' : '一键发布'}
                                        </button>
-                                       <button
-                                         onClick={(e) => handleDeleteSave(save.id, e)}
-                                         title="删除"
-                                         className="hover:text-red-400"
-                                       >
-                                         ✕
-                                       </button>
+                                       <div className="flex gap-2 text-xs lg:text-sm text-white/70 opacity-90 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                                         <button
+                                           onClick={(e) => handleExportSave(save, e)}
+                                           title="下载"
+                                           className="hover:text-white"
+                                         >
+                                           ⬇
+                                         </button>
+                                         <button
+                                           onClick={(e) => handleDeleteSave(save.id, e)}
+                                           title="删除"
+                                           className="hover:text-red-400"
+                                         >
+                                           ✕
+                                         </button>
+                                       </div>
                                      </div>
                                  </div>
                              ))
@@ -743,6 +693,10 @@ const App: React.FC = () => {
             authKey={activeKey}
             onGameReady={handleGameReady}
             onVoiceReady={handleVoiceReady}
+            onCoinsUpdated={(newCoins) =>
+              setAccountUser((prev) => (prev ? { ...prev, coins: newCoins } : prev))
+            }
+            onNeedCoins={() => setShowBuyCoins(true)}
             onCancel={resetGame}
           />
         )}
@@ -757,7 +711,6 @@ const App: React.FC = () => {
                initialNodeId={initialNodeId}
                initialAffinity={initialAffinity}
                onExit={resetGame}
-               onGameEnd={() => setShowPayGate(true)}
                isTouchDevice={isTouchDevice}
              />
           </div>

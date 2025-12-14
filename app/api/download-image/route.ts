@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getUserIdFromRequest } from '@/lib/authSession';
 
 const isAllowedRemoteImageUrl = (raw: string) => {
   try {
@@ -41,6 +42,8 @@ const fetchWithRetry = async (url: string, tries = 3) => {
 };
 
 export async function POST(req: NextRequest) {
+  if (!getUserIdFromRequest(req)) return NextResponse.json({ error: '未登录' }, { status: 401 });
+
   const payload = await req.json().catch(() => ({} as Record<string, any>));
   const url = typeof payload.url === 'string' ? payload.url.trim() : '';
   if (!url) return NextResponse.json({ error: 'url is required' }, { status: 400 });
@@ -61,4 +64,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err?.message || 'Failed to download image' }, { status: 500 });
   }
 }
-

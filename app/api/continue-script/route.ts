@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { continueStory, continueStoryStream } from '@/lib/aiServer';
+import { getUserIdFromRequest } from '@/lib/authSession';
 
 export async function POST(req: NextRequest) {
+  if (!getUserIdFromRequest(req)) return NextResponse.json({ error: '未登录' }, { status: 401 });
+
   const payload = await req.json().catch(() => ({} as Record<string, any>));
 
   const protagonistName = (payload.protagonistName as string) || 'Player';

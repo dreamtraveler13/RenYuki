@@ -118,11 +118,19 @@ npm install
 ```bash
 LINGYAAI_API_KEY=你的_API_Key
 
-# 可选：禁用“每日一次”生成限制（开发/自部署场景）
-# DISABLE_DAILY_LIMIT=true
+# 账号鉴权（建议必填，用于签发登录 Cookie）
+AUTH_SECRET=一个足够长的随机字符串
 
 # 可选：前端调用 API 的基准地址（默认为空，即与 Next 应用同源）
 # NEXT_PUBLIC_API_BASE=https://your.domain.com
+
+# 聚合支付（ZPAY / 易支付兼容，可选）
+ZPAY_BASE_URL=https://zpayz.cn
+ZPAY_PID=你的PID
+ZPAY_PKEY=你的商户密钥
+
+# 用于支付回调/跳转拼接公网地址（上线建议填写）
+PUBLIC_BASE_URL=https://your.domain.com
 ```
 
 手动用 cURL 复现“剧本生成”文本请求（与服务端同一 developer/user 消息结构）：

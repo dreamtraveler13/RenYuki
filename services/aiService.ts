@@ -188,12 +188,12 @@ export const generateGameScript = async (
   protagonistName: string,
   heroineName: string,
   plotDescription: string,
-  _authKey?: string
+  maxMode: boolean = false
 ): Promise<GameScript> => {
   return await withRetry('generate-script', async () => {
     return await requestJson<GameScript>('/api/generate-script', {
       method: 'POST',
-      body: JSON.stringify({ protagonistName, heroineName, plotDescription }),
+      body: JSON.stringify({ protagonistName, heroineName, plotDescription, maxMode }),
     });
   });
 };

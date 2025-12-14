@@ -1,22 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateScript } from '@/lib/aiServer';
-import { enforceDailyGenerationLimit } from '@/lib/dailyLimit';
+import { getUserIdFromRequest } from '@/lib/authSession';
+import { consumeUserCoins, refundUserCoins } from '@/lib/userStore';
 
 export async function POST(req: NextRequest) {
-  const limit = enforceDailyGenerationLimit(req);
-  if (limit.blocked) return limit.response;
+  const userId = getUserIdFromRequest(req);
+  if (!userId) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
-  const { protagonistName, heroineName, plotDescription } = await req.json();
+  const { protagonistName, heroineName, plotDescription, maxMode } = await req.json();
   if (!protagonistName) return NextResponse.json({ error: 'protagonistName is required' }, { status: 400 });
+
+  const isMax = maxMode === true || maxMode === 1 || maxMode === '1';
+  const cost = isMax ? 2 : 1;
+
+  try {
+    await consumeUserCoins(userId, cost);
+  } catch (err: any) {
+    const msg = err?.message || 'consume failed';
+    if (msg === 'INSUFFICIENT_COINS') {
+      return NextResponse.json({ error: '嘎拉币不足，请先购买（INSUFFICIENT_COINS）' }, { status: 402 });
+    }
+    if (msg === 'USER_NOT_FOUND') return NextResponse.json({ error: '未登录' }, { status: 401 });
+    return NextResponse.json({ error: '扣费失败，请稍后重试' }, { status: 500 });
+  }
+
   try {
     const data = await generateScript(protagonistName, heroineName, plotDescription);
-    const res = NextResponse.json(data);
-    if (limit.cookieToSet && limit.cookieName) {
-      res.cookies.set(limit.cookieName, limit.cookieToSet, { path: '/', maxAge: 60 * 60 * 24 * 30, httpOnly: true });
-    }
-    return res;
+    return NextResponse.json(data);
   } catch (err: any) {
     console.error('generate-script failed', err);
+    try {
+      await refundUserCoins(userId, cost);
+    } catch (refundErr) {
+      console.error('refund coins failed', refundErr);
+    }
     return NextResponse.json({ error: err?.message || 'Failed to generate script' }, { status: 500 });
   }
 }

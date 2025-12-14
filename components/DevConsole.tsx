@@ -78,7 +78,7 @@ const DevConsole: React.FC<Props> = ({ authKey, onExit }) => {
   const handleGenerateScript = async () => {
     addLog(`正在生成剧本：${scriptProtagonist} 与 ${scriptHeroine}…`);
     try {
-      const script = await generateGameScript(scriptProtagonist, scriptHeroine, scriptPlot, authKey);
+      const script = await generateGameScript(scriptProtagonist, scriptHeroine, scriptPlot, false);
       setScriptOutput(JSON.stringify(script, null, 2));
       setRawJsonOutput('');
       addLog('剧本生成完成。');

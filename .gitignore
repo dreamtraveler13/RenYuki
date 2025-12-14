@@ -19,3 +19,7 @@ yarn-error.log*
 # Misc
 .DS_Store
 job_results
+
+# Runtime data (auth/orders)
+data/*
+!data/.gitkeep

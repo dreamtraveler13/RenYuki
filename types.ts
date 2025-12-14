@@ -61,6 +61,46 @@ export interface UserProfile {
   avatarBase64: string; 
 }
 
+export interface AccountUser {
+  id: string;
+  username: string;
+  displayName: string;
+  coins: number;
+  createdAt: string;
+}
+
+export type PayType = 'alipay' | 'wxpay';
+export type CoinPackId = 'coin_2' | 'coin_5';
+export type OrderStatus = 'created' | 'paid' | 'credited';
+
+export interface PaymentOrder {
+  outTradeNo: string;
+  provider: 'zpay';
+  payType: PayType;
+  packId: CoinPackId;
+  amount: string;
+  coins: number;
+  status: OrderStatus;
+  createdAt: string;
+  paidAt?: string;
+  creditedAt?: string;
+  tradeNo?: string;
+}
+
+export interface PlazaGameSummary {
+  id: string;
+  title: string;
+  date: string;
+  heroineName: string;
+  affinity: number;
+  coverBase64: string;
+  plays: number;
+}
+
+export interface PlazaGame extends PlazaGameSummary {
+  save: SaveFile;
+}
+
 export interface SaveFile {
   id: number; // Timestamp
   title: string;

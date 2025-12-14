@@ -4,12 +4,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CharacterImages, GameScript, GeneratedAssets, UserProfile } from '../types';
 import Button from './Button';
 import { fileToBase64, generateGameScript, generateImage, generateProtagonistSprite, generateHeroineSprite } from '../services/aiService';
+import { walletBalance } from '../services/accountService';
 import { saveGame } from '../services/storageService';
 
 interface Props {
   authKey: string;
   onGameReady: (script: GameScript, assets: GeneratedAssets, user: UserProfile) => void;
   onVoiceReady?: (nodeId: string, audioBase64: string) => void;
+  onCoinsUpdated?: (coins: number) => void;
+  onNeedCoins?: () => void;
   onCancel: () => void;
 }
 
@@ -132,7 +135,7 @@ const fetchAudioToBase64 = async (url: string): Promise<string> => {
   }
 };
 
-const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCancel }) => {
+const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpdated, onNeedCoins, onCancel }) => {
   const mountedRef = useRef(true);
   const [step, setStep] = useState<'upload' | 'generating'>('upload');
   const [loadingStatus, setLoadingStatus] = useState('');
@@ -187,7 +190,7 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCancel })
 
       // 1) Start core tasks in parallel (script + sprites)
       if (mountedRef.current) setLoadingStatus('正在生成剧本');
-      const scriptPromise = generateGameScript(userName, targetHeroine, plotDescription, authKey);
+      const scriptPromise = generateGameScript(userName, targetHeroine, plotDescription, maxMode);
 
       const protagonistPromise: Promise<CharacterImages> = (async () => {
         if (mountedRef.current) setLoadingStatus('正在生成主角立绘');
@@ -270,6 +273,10 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCancel })
       })();
 
       const script = await scriptPromise;
+      try {
+        const coins = await walletBalance();
+        onCoinsUpdated?.(coins);
+      } catch {}
 
       // 2) Backgrounds (depend on script) - full parallel
       const backgroundsPromise = (async () => {
@@ -368,10 +375,9 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCancel })
     } catch (error) {
       console.error(error);
       const rawMessage = (error as Error)?.message || '生成失败，请稍后重试';
-      const message =
-        rawMessage.includes('Daily limit')
-          ? '今日免费生成次数已用完，请明天再试'
-          : rawMessage;
+      const insufficientCoins = rawMessage.includes('INSUFFICIENT_COINS') || rawMessage.includes('嘎拉币不足');
+      if (insufficientCoins) onNeedCoins?.();
+      const message = insufficientCoins ? '嘎拉币不足，请先购买' : rawMessage;
       if (mountedRef.current) {
         setLoadingStatus('错误：' + message);
         setErrorMessage(message);
@@ -432,7 +438,7 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCancel })
 	                    <span className="text-xs md:text-sm font-bold tracking-widest uppercase">MAX MODE</span>
 	                  </label>
 	                  <div className="text-[10px] md:text-xs text-gray-500 font-mono-tech">
-	                    开启 MAX MODE 后，主角和女主立绘数量和质量会显著提升。
+	                    MAX MODE 消耗 2 个嘎拉币（普通 1 个），立绘数量和质量会显著提升。
 	                  </div>
 	               </div>
 	            </div>
@@ -525,7 +531,7 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCancel })
                    disabled={!userName}
                    className="w-full md:w-40"
                  >
-                   {!userName ? "请先填写主角名字" : "开始生成"}
+                   {!userName ? "请先填写主角名字" : maxMode ? "开始生成（2 嘎拉币）" : "开始生成（1 嘎拉币）"}
                  </Button>
                </div>
             </div>
