@@ -9,7 +9,7 @@ import VisualNovelPlayer from './components/VisualNovelPlayer';
 import LoginScreen from './components/LoginScreen';
 import DevConsole from './components/DevConsole';
 import Button from './components/Button';
-import { getSaveList, deleteSave, restoreSave } from './services/storageService';
+import { getSaveList, deleteSave } from './services/storageService';
 import { authLogout, authMe } from './services/accountService';
 import { publishPlazaGame } from './services/plazaService';
 
@@ -48,7 +48,6 @@ const App: React.FC = () => {
   const [initialAffinity, setInitialAffinity] = useState<number | undefined>(undefined);
 
   const [galleryHeroines, setGalleryHeroines] = useState<{name: string, image: string, id: number}[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const coins = accountUser?.coins ?? 0;
 
   const iosPromptOverlay = showIosPrompt ? (
@@ -288,7 +287,11 @@ const App: React.FC = () => {
 
   const startCreation = () => {
     if (!accountUser) {
-      setPublishMessage('请登录后创建/生成');
+      setShowPlaza(false);
+      setShowLoadMenu(false);
+      setShowBuyCoins(false);
+      setIsLoggedIn(false);
+      setAuthChecked(true);
       return;
     }
     setGameState(GameState.CREATING);
@@ -338,8 +341,11 @@ const App: React.FC = () => {
     setPublishingSaveId(save.id);
     setPublishMessage(null);
     try {
-      await publishPlazaGame(save);
-      setPublishMessage('已发布到嘎拉广场');
+      const game = await publishPlazaGame(save);
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const url = origin ? `${origin}/g/${game.id}` : `/g/${game.id}`;
+      const ok = await copyText(url);
+      setPublishMessage(ok ? '已发布，分享链接已复制' : '已发布，可复制分享链接');
       setShowPlaza(true);
       setShowLoadMenu(false);
     } catch (err: any) {
@@ -370,41 +376,25 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
-  const handleExportSave = (save: SaveFile, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const dataStr = JSON.stringify(save);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `嘎拉存档_${save.heroineName}_${save.id}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportClick = () => fileInputRef.current?.click();
-
-  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (event) => {
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
       try {
-        const json = event.target?.result as string;
-        const data = JSON.parse(json);
-        if (!data.script || !data.assets) {
-          alert("无效的嘎拉文件");
-          return;
-        }
-        await restoreSave(data);
-        const saves = await getSaveList();
-        setSaveList(saves);
-      } catch (err) { alert("导入失败"); }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        return true;
+      } catch {
+        return false;
+      }
+    }
   };
 
   const activeKey = authToken || '';
@@ -478,7 +468,7 @@ const App: React.FC = () => {
         }}
       />
 
-      {accountUser && gameState !== GameState.PLAYING && (
+      {accountUser && gameState === GameState.HOME && !showLoadMenu && !showPlaza && !showBuyCoins && (
         <div className="fixed top-3 right-3 z-[14000] pointer-events-auto">
           <div className="bg-white/80 backdrop-blur border border-black/10 rounded-2xl shadow-lg px-3 py-2 flex items-center gap-3">
             <div className="flex flex-col leading-tight">
@@ -570,12 +560,6 @@ const App: React.FC = () => {
                    >
                       03 // 嘎拉广场
                    </button>
-                   <button
-                     onClick={handleLogout}
-                     className="text-xs md:text-xs lg:text-sm font-mono-tech text-gray-400 hover:text-black mt-4 lg:mt-10"
-                   >
-                     // 退出登录
-                   </button>
                 </div>
 
                 <div className="mt-10 lg:mt-14 text-[10px] lg:text-[11px] text-gray-400/60 leading-relaxed max-w-md select-none">
@@ -626,8 +610,6 @@ const App: React.FC = () => {
                  <div className="h-14 lg:h-20 border-b border-black flex items-center justify-between px-4 lg:px-10 bg-gray-50">
                      <h2 className="text-xl lg:text-3xl font-black uppercase">记忆库</h2>
                      <div className="flex gap-2 lg:gap-4">
-                        <input type="file" ref={fileInputRef} accept=".json" onChange={handleFileImport} className="hidden" />
-                        <Button variant="secondary" onClick={handleImportClick} isTouch={isTouchDevice} className="!py-1 !px-2 lg:!py-2 lg:!px-4 text-[10px] lg:text-xs">导入</Button>
                         <button onClick={() => setShowLoadMenu(false)} className="text-2xl lg:text-4xl hover:rotate-90 transition-transform">×</button>
                      </div>
                  </div>
@@ -668,20 +650,13 @@ const App: React.FC = () => {
                                      <div className="absolute top-3 right-3 lg:top-6 lg:right-6 flex items-center gap-2 z-20">
                                        <button
                                          onClick={(e) => handlePublishSaveToPlaza(save, e)}
-                                         title="发布到嘎拉广场"
+                                         title="发布并复制分享链接"
                                          className="bg-white text-black hover:bg-white/95 px-3 py-2 rounded-xl font-black shadow-xl border border-black/10"
                                          disabled={publishingSaveId === save.id}
                                        >
-                                         {publishingSaveId === save.id ? '发布中…' : '一键发布'}
+                                         {publishingSaveId === save.id ? '发布中…' : '发布并复制链接'}
                                        </button>
                                        <div className="flex gap-2 text-xs lg:text-sm text-white/70 opacity-90 lg:opacity-0 group-hover:opacity-100 transition-opacity">
-                                         <button
-                                           onClick={(e) => handleExportSave(save, e)}
-                                           title="下载"
-                                           className="hover:text-white"
-                                         >
-                                           ⬇
-                                         </button>
                                          <button
                                            onClick={(e) => handleDeleteSave(save.id, e)}
                                            title="删除"

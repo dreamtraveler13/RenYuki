@@ -28,6 +28,7 @@ interface Props {
   onGameEnd?: () => void;
   isTouchDevice: boolean;
   authKey: string;
+  enableContinue?: boolean;
 }
 
 // Helper: Decode standard audio formats (MP3, WAV) from Base64
@@ -50,7 +51,7 @@ const decodeUrlAudio = async (url: string, audioContext: AudioContext): Promise<
   return await audioContext.decodeAudioData(buf);
 };
 
-const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initialNodeId, initialAffinity, onExit, onGameEnd, isTouchDevice }) => {
+const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initialNodeId, initialAffinity, onExit, onGameEnd, isTouchDevice, enableContinue = true }) => {
   const [runtimeScript, setRuntimeScript] = useState<GameScript>(script);
   const [hasStarted, setHasStarted] = useState(false);
   const [currentNodeId, setCurrentNodeId] = useState<string>(initialNodeId || script.startNodeId);
@@ -339,8 +340,27 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
         userProfile,
         memoryCoverBase64: endingCover || undefined,
       };
-      await publishPlazaGame(saveData);
-      setPublishMessage('已上传到嘎拉广场');
+      const game = await publishPlazaGame(saveData);
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const url = origin ? `${origin}/g/${game.id}` : `/g/${game.id}`;
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(url);
+        copied = true;
+      } catch {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = url;
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          copied = true;
+        } catch {}
+      }
+      setPublishMessage(copied ? '已发布，分享链接已复制' : '已发布，可复制分享链接');
     } catch (err: any) {
       setPublishMessage(err?.message || '上传失败');
     } finally {
@@ -350,6 +370,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   };
 
   const addUserOptionAndStart = async () => {
+    if (!enableContinue) return;
     if (!currentNode || currentNode.nodeType !== 'user_choice') return;
     const text = newOptionText.trim();
     if (!text) return;
@@ -828,7 +849,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
             )}
             <div className="space-y-4">
                 <Button onClick={handlePublishToPlaza} className="w-full" disabled={isPublishing} isTouch={isTouchDevice}>
-                    {isPublishing ? "正在上传..." : "上传到嘎拉广场"}
+                    {isPublishing ? "正在发布..." : "发布到嘎拉广场后复制分享链接"}
                 </Button>
                 {publishMessage && <p className="text-green-600 font-mono-tech text-xs">{publishMessage}</p>}
                 <Button onClick={onExit} variant="secondary" className="w-full" isTouch={isTouchDevice}>返回根目录</Button>
@@ -931,31 +952,35 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
 
             <div className="bg-white/95 border-2 border-black p-3 lg:p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.5)] space-y-3">
               <div className="text-xs lg:text-base font-bold text-gray-900">
-                {currentNode.choicePromptCN || '请点击“新建”写出你的回答/行动，马上开始续写。'}
+                {enableContinue
+                  ? (currentNode.choicePromptCN || '请点击“新建”写出你的回答/行动，马上开始续写。')
+                  : '该嘎拉为分享版本，已关闭“续写”功能。请选择已有选项继续。'}
               </div>
 
-              <div className="flex gap-2">
-                <input
-                  value={newOptionText}
-                  onChange={(e) => setNewOptionText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      addUserOptionAndStart();
-                    }
-                  }}
-                  disabled={isContinuing}
-                  placeholder="输入一个选项，比如：我鼓起勇气邀请她放学一起回家。"
-                  className="flex-1 border border-black/30 p-2 lg:p-3 text-sm lg:text-base outline-none focus:ring-2 focus:ring-black/30 bg-white"
-                />
-                <button
-                  onClick={addUserOptionAndStart}
-                  disabled={isContinuing || newOptionText.trim().length === 0}
-                  className="bg-black text-white font-bold px-3 lg:px-4 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  新建
-                </button>
-              </div>
+              {enableContinue && (
+                <div className="flex gap-2">
+                  <input
+                    value={newOptionText}
+                    onChange={(e) => setNewOptionText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addUserOptionAndStart();
+                      }
+                    }}
+                    disabled={isContinuing}
+                    placeholder="输入一个选项，比如：我鼓起勇气邀请她放学一起回家。"
+                    className="flex-1 border border-black/30 p-2 lg:p-3 text-sm lg:text-base outline-none focus:ring-2 focus:ring-black/30 bg-white"
+                  />
+                  <button
+                    onClick={addUserOptionAndStart}
+                    disabled={isContinuing || newOptionText.trim().length === 0}
+                    className="bg-black text-white font-bold px-3 lg:px-4 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    新建
+                  </button>
+                </div>
+              )}
 
               {continueError && (
                 <div className="text-[10px] lg:text-xs text-red-700 font-mono-tech">
@@ -964,7 +989,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
               )}
 
               <div className="space-y-2">
-                {(currentNode.choices || []).length === 0 && (
+                {(currentNode.choices || []).length === 0 && enableContinue && (
                   <div className="text-[10px] lg:text-xs text-gray-500 font-mono-tech">
                     输入一个选项并点“新建”，会立刻流式生成；收到第 1 个节点就自动进入游玩。
                   </div>
