@@ -1,0 +1,1025 @@
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { GameScript, GeneratedAssets, SpeakerType, Choice, StoryNode, UserProfile } from '../types';
+import Button from './Button';
+import Typewriter from './Typewriter';
+import { generateMemoryCover } from '../services/aiService';
+import { saveGame } from '../services/storageService';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+
+interface Props {
+  script: GameScript;
+  assets: GeneratedAssets;
+  userProfile: UserProfile;
+  initialNodeId?: string;
+  initialAffinity?: number;
+  onExit: () => void;
+  onGameEnd?: () => void;
+  isTouchDevice: boolean;
+  authKey: string;
+}
+
+// Helper: Decode standard audio formats (MP3, WAV) from Base64
+// Used for Background Music
+const decodeStandardAudio = async (base64Data: string, audioContext: AudioContext): Promise<AudioBuffer> => {
+  const binaryString = window.atob(base64Data);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  // decodeAudioData handles MP3 headers automatically
+  return await audioContext.decodeAudioData(bytes.buffer);
+};
+
+const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initialNodeId, initialAffinity, onExit, onGameEnd, isTouchDevice, authKey }) => {
+  const [runtimeScript, setRuntimeScript] = useState<GameScript>(script);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [currentNodeId, setCurrentNodeId] = useState<string>(initialNodeId || script.startNodeId);
+  const [affinity, setAffinity] = useState(initialAffinity || 50);
+  const [currentBackground, setCurrentBackground] = useState<string | null>(null);
+  const [gameEnded, setGameEnded] = useState(false);
+  const [endNotified, setEndNotified] = useState(false);
+  const [endingCover, setEndingCover] = useState<string | null>(null);
+  const [endingCoverGenerating, setEndingCoverGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [currentBgmKey, setCurrentBgmKey] = useState<string | null>(null);
+  const [continueError, setContinueError] = useState<string | null>(null);
+  const [isContinuing, setIsContinuing] = useState(false);
+  const [dialogueHistory, setDialogueHistory] = useState<Array<{ speaker: string; textCN: string }>>([]);
+  const [newOptionText, setNewOptionText] = useState('');
+  const [waitingForNodeId, setWaitingForNodeId] = useState<string | null>(null);
+  const [continuingChoiceIndex, setContinuingChoiceIndex] = useState<number | null>(null);
+  const [visitStack, setVisitStack] = useState<Array<{ nodeId: string; affinity: number }>>(() => [
+    { nodeId: initialNodeId || script.startNodeId, affinity: initialAffinity || 50 },
+  ]);
+  
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const bgmSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const bgmGainRef = useRef<GainNode | null>(null);
+  const isRestoringHistoryRef = useRef(false);
+
+  useEffect(() => {
+    setRuntimeScript(script);
+    setCurrentNodeId(initialNodeId || script.startNodeId);
+    setAffinity(initialAffinity || 50);
+    setVisitStack([{ nodeId: initialNodeId || script.startNodeId, affinity: initialAffinity || 50 }]);
+    setWaitingForNodeId(null);
+    setContinueError(null);
+    setIsContinuing(false);
+    setContinuingChoiceIndex(null);
+  }, [script, initialNodeId, initialAffinity]);
+
+  const currentNode: StoryNode | undefined = runtimeScript.nodes[currentNodeId];
+  const isUserChoiceNode = !!currentNode && currentNode.nodeType === 'user_choice';
+
+  // Helper function: If isTouchDevice is true, suppress the desktop (lg:) classes
+  // This forces the UI to stay compact even on high-res tablets or phones
+  const d = (cls: string) => isTouchDevice ? '' : cls;
+
+  // Initialize Audio
+  useEffect(() => {
+    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    
+    return () => {
+      bgmSourceRef.current?.stop();
+      audioContextRef.current?.close();
+    };
+  }, []);
+
+  const handleStartGame = async () => {
+    if (!audioContextRef.current) return;
+    await audioContextRef.current.resume();
+    setHasStarted(true);
+  };
+
+  // Background Logic
+  useEffect(() => {
+    if (!currentNode) return;
+    if (currentNode.backgroundPrompt && assets.backgrounds[currentNode.backgroundPrompt]) {
+      setCurrentBackground(assets.backgrounds[currentNode.backgroundPrompt]);
+    } else if (!currentBackground && Object.keys(assets.backgrounds).length > 0) {
+        setCurrentBackground(assets.backgrounds[Object.keys(assets.backgrounds)[0]]);
+    }
+  }, [currentNodeId, currentNode, currentBackground, assets.backgrounds]);
+
+  // Track recent dialogue for incremental continuation
+  useEffect(() => {
+    if (!currentNode) return;
+    setDialogueHistory((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.speaker === String(currentNode.speaker) && last.textCN === currentNode.textCN) return prev;
+      const next = [...prev, { speaker: String(currentNode.speaker), textCN: currentNode.textCN }];
+      return next.length > 60 ? next.slice(-60) : next;
+    });
+  }, [currentNodeId, currentNode]);
+
+  // Track navigation history for "go back to last branch choice"
+  useEffect(() => {
+    if (!currentNodeId) return;
+    if (isRestoringHistoryRef.current) {
+      isRestoringHistoryRef.current = false;
+      return;
+    }
+
+    setVisitStack((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.nodeId === currentNodeId) return prev;
+      return [...prev, { nodeId: currentNodeId, affinity }];
+    });
+  }, [currentNodeId, affinity]);
+
+  // Notify parent when game ends (once)
+  useEffect(() => {
+    if (gameEnded && !endNotified) {
+      setEndNotified(true);
+      onGameEnd?.();
+    }
+  }, [gameEnded, endNotified, onGameEnd]);
+
+  // BGM Logic (Seamless Cross-fade & Continuous Playback)
+  useEffect(() => {
+    if (!hasStarted || !currentNode || !audioContextRef.current) return;
+
+    const playBgm = async (key: string) => {
+        // 1. Validation
+        if (!assets.music[key]) {
+             return;
+        }
+        
+        // 2. Skip if already playing this track (Continuous Playback)
+        if (currentBgmKey === key) return;
+
+        try {
+            // 3. Decode FIRST to ensure smooth transition (No gap/silence during loading)
+            const buffer = await decodeStandardAudio(assets.music[key], audioContextRef.current!);
+            
+            if (audioContextRef.current?.state === 'closed') return;
+            const ctx = audioContextRef.current!;
+            const now = ctx.currentTime;
+
+            // 4. Crossfade: Fade Out Old Track
+            if (bgmSourceRef.current && bgmGainRef.current) {
+                const oldSource = bgmSourceRef.current;
+                const oldGain = bgmGainRef.current;
+                
+                try {
+                    oldGain.gain.cancelScheduledValues(now);
+                    oldGain.gain.setValueAtTime(oldGain.gain.value, now);
+                    oldGain.gain.linearRampToValueAtTime(0, now + 2); // 2s Fade out
+                    
+                    // Stop later to allow fade out to finish
+                    setTimeout(() => { 
+                        try { oldSource.stop(); oldSource.disconnect(); oldGain.disconnect(); } catch(e){} 
+                    }, 2500);
+                } catch (e) { console.error(e); }
+            }
+
+            // 5. Crossfade: Start New Track
+            const newSource = ctx.createBufferSource();
+            newSource.buffer = buffer;
+            newSource.loop = true;
+            
+            const newGain = ctx.createGain();
+            newGain.gain.value = 0; // Start silent
+            
+            newSource.connect(newGain);
+            newGain.connect(ctx.destination);
+            
+            newSource.start(0);
+            newGain.gain.linearRampToValueAtTime(0.5, now + 2); // 2s Fade in
+
+            // 6. Update References & State
+            bgmSourceRef.current = newSource;
+            bgmGainRef.current = newGain;
+            setCurrentBgmKey(key);
+
+        } catch (e) {
+            console.warn("BGM Playback failed", e);
+        }
+    };
+
+    // Determine target BGM
+    let targetKey = currentNode.bgm;
+    
+    // Logic: Music must ALWAYS play.
+    if (!targetKey) {
+        if (currentBgmKey) {
+             // Case A: Music is already playing, and this node has no specific BGM.
+             // Action: KEEP PLAYING (Do nothing). Do not pause, do not stop.
+             return;
+        } else {
+             // Case B: No music playing yet (Start of game), and first node has no BGM.
+             // Action: Play Default (bgm_bossa or first available).
+             targetKey = 'bgm_bossa';
+             if (!assets.music[targetKey]) targetKey = Object.keys(assets.music)[0];
+        }
+    }
+
+    if (targetKey) {
+        playBgm(targetKey);
+    }
+
+  }, [currentNodeId, currentNode, assets.music, hasStarted, currentBgmKey]);
+
+  const handleNext = () => {
+    if (!currentNode) return;
+    if (currentNode.nodeType === 'user_choice') return;
+    if (currentNode.choices && currentNode.choices.length > 0) return;
+    
+    if (currentNode.nextNodeId) {
+      if (runtimeScript.nodes[currentNode.nextNodeId]) {
+        setCurrentNodeId(currentNode.nextNodeId);
+      } else {
+        // Streaming generation may still be producing the next node.
+        setWaitingForNodeId(currentNode.nextNodeId);
+      }
+      return;
+    } else {
+      setGameEnded(true);
+    }
+  };
+
+  const handleChoice = (choice: Choice) => {
+    setAffinity(prev => Math.min(100, Math.max(0, prev + choice.affinityScore)));
+    setCurrentNodeId(choice.nextNodeId);
+  };
+
+  const canGoBackToLastBranch = () => {
+    if (isContinuing || waitingForNodeId) return false;
+    for (let i = visitStack.length - 2; i >= 0; i--) {
+      const id = visitStack[i]?.nodeId;
+      if (!id) continue;
+      if (runtimeScript.nodes[id]?.nodeType === 'user_choice') return true;
+    }
+    return false;
+  };
+
+  const goBackToLastBranch = () => {
+    if (isContinuing || waitingForNodeId) return;
+    let targetIndex = -1;
+    for (let i = visitStack.length - 2; i >= 0; i--) {
+      const id = visitStack[i]?.nodeId;
+      if (!id) continue;
+      if (runtimeScript.nodes[id]?.nodeType === 'user_choice') {
+        targetIndex = i;
+        break;
+      }
+    }
+    if (targetIndex === -1) return;
+
+    const entry = visitStack[targetIndex];
+    isRestoringHistoryRef.current = true;
+    setWaitingForNodeId(null);
+    setContinueError(null);
+    setIsContinuing(false);
+    setContinuingChoiceIndex(null);
+    setAffinity(entry.affinity);
+    setCurrentNodeId(entry.nodeId);
+    setVisitStack((prev) => prev.slice(0, targetIndex + 1));
+  };
+
+  const handleSaveGame = async () => {
+    setIsSaving(true);
+    try {
+      const cover = gameEnded ? endingCover || undefined : undefined;
+      await saveGame(runtimeScript, assets, userProfile, currentNodeId, affinity, cover);
+      setSaveMessage("保存成功");
+    } catch (e) {
+      setSaveMessage("保存失败");
+    } finally {
+      setIsSaving(false);
+      setTimeout(() => setSaveMessage(null), 2000);
+    }
+  };
+
+  const addUserOptionAndStart = async () => {
+    if (!currentNode || currentNode.nodeType !== 'user_choice') return;
+    const text = newOptionText.trim();
+    if (!text) return;
+    if (isContinuing) return;
+
+    const choiceIndex = (currentNode.choices || []).length;
+    const choiceNodeId = currentNode.id;
+    const entryNodeId = `choice-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const pendingNextId = `pending-${entryNodeId}`;
+
+    setContinueError(null);
+    setNewOptionText('');
+
+    setRuntimeScript((prev) => {
+      const node = prev.nodes[choiceNodeId];
+      if (!node) return prev;
+      const existing = node.choices ? [...node.choices] : [];
+      existing.push({ text, nextNodeId: entryNodeId, affinityScore: 0 });
+      return {
+        ...prev,
+        nodes: {
+          ...prev.nodes,
+          [node.id]: { ...node, choices: existing },
+          [entryNodeId]: {
+            id: entryNodeId,
+            speaker: SpeakerType.PROTAGONIST,
+            textCN: text,
+            emotion: 'normal',
+            backgroundPrompt: node.backgroundPrompt,
+            bgm: node.bgm,
+            nextNodeId: pendingNextId,
+            nodeType: 'dialogue',
+          },
+        },
+      };
+    });
+
+    try {
+      await streamContinueFromChoice({ choiceText: text, choiceIndex, choiceNodeId, entryNodeId, pendingNextId });
+    } catch (e: any) {
+      setContinueError(e?.message || '续写失败，请重试');
+      setIsContinuing(false);
+      setContinuingChoiceIndex(null);
+    }
+  };
+
+  const streamContinueFromChoice = async (params: {
+    choiceText: string;
+    choiceIndex: number;
+    choiceNodeId: string;
+    entryNodeId: string;
+    pendingNextId: string;
+  }) => {
+    const { choiceText, choiceIndex, choiceNodeId, entryNodeId, pendingNextId } = params;
+    setIsContinuing(true);
+    setContinuingChoiceIndex(choiceIndex);
+    setContinueError(null);
+
+    try {
+      const allowedBackgroundPrompts = Object.keys(assets.backgrounds);
+      const recentDialogue = dialogueHistory.slice(-12);
+
+      const resp = await fetch(`${API_BASE}/api/continue-script`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          protagonistName: userProfile.name || 'Player',
+          heroineName: runtimeScript.heroineName || 'Yuki',
+          userChoiceText: choiceText,
+          affinity,
+          allowedBackgroundPrompts,
+          recentDialogue,
+          stream: true,
+        }),
+      });
+
+      const contentType = resp.headers.get('content-type') || '';
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '');
+        throw new Error(text || `Request failed: ${resp.status}`);
+      }
+      if (!contentType.includes('application/x-ndjson') || !resp.body) {
+        const text = await resp.text().catch(() => '');
+        try {
+          const data = JSON.parse(text);
+          if (data && typeof data.error === 'string') throw new Error(data.error);
+        } catch {
+          // ignore
+        }
+        throw new Error('Streaming response missing/invalid.');
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let startNodeId: string | null = null;
+      let appliedAffinity = false;
+
+      const upsertNode = (node: any) => {
+        setRuntimeScript((prev) => ({
+          ...prev,
+          nodes: {
+            ...prev.nodes,
+            [node.id]: node,
+          },
+        }));
+      };
+
+      const patchChoiceStart = (startId: string) => {
+        setRuntimeScript((prev) => {
+          const entry = prev.nodes[entryNodeId];
+          if (!entry) return prev;
+          // Replace the placeholder next id with the real first node id.
+          return {
+            ...prev,
+            nodes: {
+              ...prev.nodes,
+              [entryNodeId]: { ...entry, nextNodeId: startId },
+            },
+          };
+        });
+      };
+
+      const patchChoiceAffinity = (delta: number) => {
+        setRuntimeScript((prev) => {
+          const node = prev.nodes[choiceNodeId];
+          if (!node) return prev;
+          const choices = node.choices ? [...node.choices] : [];
+          const picked = choices[choiceIndex];
+          if (!picked) return prev;
+          choices[choiceIndex] = { ...picked, affinityScore: delta };
+          return {
+            ...prev,
+            nodes: {
+              ...prev.nodes,
+              [node.id]: { ...node, choices },
+            },
+          };
+        });
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line) continue;
+          let msg: any = null;
+          try {
+            msg = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          if (msg.type === 'error') {
+            throw new Error(msg.error || 'Streaming error');
+          }
+          if (msg.type === 'affinity' && !appliedAffinity) {
+            const delta = typeof msg.delta === 'number' ? msg.delta : Number(msg.delta);
+            const deltaValue = Number.isFinite(delta) ? delta : 0;
+            appliedAffinity = true;
+            patchChoiceAffinity(deltaValue);
+            setAffinity((prev) => Math.min(100, Math.max(0, prev + deltaValue)));
+            continue;
+          }
+          if (msg.type === 'done') {
+            continue;
+          }
+          if (msg.type === 'node' && msg.node) {
+            const node = msg.node;
+            if (!startNodeId) {
+              startNodeId = node.id;
+              upsertNode(node);
+              patchChoiceStart(node.id);
+              setWaitingForNodeId((prev) => (prev === pendingNextId ? node.id : prev));
+              // We now have at least one real node, so we can leave the choice overlay and start playing.
+              setCurrentNodeId((prev) => (prev === choiceNodeId ? entryNodeId : prev));
+              continue;
+            }
+            upsertNode(node);
+          }
+        }
+      }
+    } finally {
+      setIsContinuing(false);
+      setContinuingChoiceIndex(null);
+    }
+  };
+
+  const handleUserChoiceSelect = async (choice: Choice, index: number) => {
+    if (!currentNode || currentNode.nodeType !== 'user_choice') return;
+    if (isContinuing) return;
+
+    if (choice.nextNodeId && runtimeScript.nodes[choice.nextNodeId]) {
+      handleChoice(choice);
+      return;
+    }
+
+    try {
+      const choiceNodeId = currentNode.id;
+      const entryNodeId = choice.nextNodeId && choice.nextNodeId.trim().length > 0 ? choice.nextNodeId : `choice-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const pendingNextId = `pending-${entryNodeId}`;
+
+      // Ensure the choice points to an in-story "player choice" node.
+      setRuntimeScript((prev) => {
+        const node = prev.nodes[choiceNodeId];
+        if (!node) return prev;
+        const choices = node.choices ? [...node.choices] : [];
+        const picked = choices[index];
+        if (!picked) return prev;
+        choices[index] = { ...picked, nextNodeId: entryNodeId };
+
+        const existingEntry = prev.nodes[entryNodeId];
+        const nextNodes: Record<string, any> = {
+          ...prev.nodes,
+          [node.id]: { ...node, choices },
+        };
+
+        if (!existingEntry) {
+          nextNodes[entryNodeId] = {
+            id: entryNodeId,
+            speaker: SpeakerType.PROTAGONIST,
+            textCN: picked.text,
+            emotion: 'normal',
+            backgroundPrompt: node.backgroundPrompt,
+            bgm: node.bgm,
+            nextNodeId: pendingNextId,
+            nodeType: 'dialogue',
+          };
+        } else if (!existingEntry.nextNodeId) {
+          nextNodes[entryNodeId] = { ...existingEntry, nextNodeId: pendingNextId };
+        }
+
+        return { ...prev, nodes: nextNodes };
+      });
+
+      await streamContinueFromChoice({ choiceText: choice.text, choiceIndex: index, choiceNodeId, entryNodeId, pendingNextId });
+    } catch (e: any) {
+      setContinueError(e?.message || '续写失败，请重试');
+    } finally {
+      setIsContinuing(false);
+      setContinuingChoiceIndex(null);
+    }
+  };
+
+  // If we were waiting for a not-yet-streamed node, jump when it arrives.
+  useEffect(() => {
+    if (!waitingForNodeId) return;
+    if (runtimeScript.nodes[waitingForNodeId]) {
+      setCurrentNodeId(waitingForNodeId);
+      setWaitingForNodeId(null);
+    }
+  }, [waitingForNodeId, runtimeScript]);
+
+  // Generate a sweet couple photo as memory cover when the story is close to the end
+  useEffect(() => {
+    const collectLookaheadNodes = (start: StoryNode | undefined, depth: number): StoryNode[] => {
+      if (!start) return [];
+      const queue: Array<{ node: StoryNode; distance: number }> = [];
+      const visited = new Set<string>();
+      const out: StoryNode[] = [];
+
+      const enqueue = (node: StoryNode, distance: number) => {
+        if (visited.has(node.id) || distance > depth) return;
+        visited.add(node.id);
+        queue.push({ node, distance });
+      };
+
+      const pushNeighbors = (node: StoryNode, distance: number) => {
+        if (node.nextNodeId && runtimeScript.nodes[node.nextNodeId]) {
+          enqueue(runtimeScript.nodes[node.nextNodeId], distance + 1);
+        }
+        if (node.choices) {
+          node.choices.forEach((choice) => {
+            const target = runtimeScript.nodes[choice.nextNodeId];
+            if (target) enqueue(target, distance + 1);
+          });
+        }
+      };
+
+      pushNeighbors(start, 0);
+
+      while (queue.length > 0) {
+        const { node, distance } = queue.shift()!;
+        out.push(node);
+        pushNeighbors(node, distance);
+      }
+
+      return out;
+    };
+
+    const isNearEnding = () => {
+      if (!currentNode) return false;
+      const lookahead = collectLookaheadNodes(currentNode, 4);
+      if (lookahead.length === 0) return false;
+      return lookahead.some(
+        (n) =>
+          n.nodeType !== 'user_choice' &&
+          (!n.choices || n.choices.length === 0) &&
+          (!n.nextNodeId || !runtimeScript.nodes[n.nextNodeId])
+      );
+    };
+
+    const nearEnding = isNearEnding();
+
+    if ((!gameEnded && !nearEnding) || endingCover || endingCoverGenerating) return;
+
+    const node = currentNode;
+    const scenePrompt =
+      node?.backgroundPrompt ||
+      'a romantic Japanese high school setting at dusk, gentle atmosphere';
+
+    const run = async () => {
+      setEndingCoverGenerating(true);
+      try {
+        let imageBase64: string | null = null;
+
+        try {
+          imageBase64 = await generateMemoryCover(
+            {
+              heroineName: runtimeScript.heroineName,
+              protagonistName: userProfile.name,
+              scenePrompt,
+              affinity,
+            },
+            authKey
+          );
+        } catch (e) {
+          console.warn('Failed to generate memory cover', e);
+        }
+
+        if (!imageBase64) {
+          const toDataUrl = (base64: string) =>
+            base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
+
+          const generateFallbackCover = async (): Promise<string | null> => {
+            const bgRaw = currentBackground || Object.values(assets.backgrounds)[0];
+            const heroRaw = assets.heroine?.normal;
+            const protagRaw = assets.protagonist?.normal;
+            if (!bgRaw || !heroRaw || !protagRaw) return null;
+
+            const loadImage = (src: string) =>
+              new Promise<HTMLImageElement>((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = toDataUrl(src);
+              });
+
+            try {
+              const [bgImg, heroImg, protagImg] = await Promise.all([
+                loadImage(bgRaw),
+                loadImage(heroRaw),
+                loadImage(protagRaw),
+              ]);
+
+              const canvas = document.createElement('canvas');
+              canvas.width = 1280;
+              canvas.height = 720;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) return null;
+
+              const scale = Math.max(canvas.width / bgImg.width, canvas.height / bgImg.height);
+              const bgW = bgImg.width * scale;
+              const bgH = bgImg.height * scale;
+              ctx.drawImage(bgImg, (canvas.width - bgW) / 2, (canvas.height - bgH) / 2, bgW, bgH);
+
+              const pHeight = canvas.height * 0.9;
+              const pScale = pHeight / protagImg.height;
+              const pWidth = protagImg.width * pScale;
+              ctx.drawImage(protagImg, canvas.width * 0.05, canvas.height - pHeight, pWidth, pHeight);
+
+              const hHeight = canvas.height * 0.95;
+              const hScale = hHeight / heroImg.height;
+              const hWidth = heroImg.width * hScale;
+              ctx.drawImage(
+                heroImg,
+                canvas.width - hWidth - canvas.width * 0.05,
+                canvas.height - hHeight,
+                hWidth,
+                hHeight
+              );
+
+              return canvas.toDataURL('image/png').split(',')[1];
+            } catch (e) {
+              console.warn('Fallback cover generation failed', e);
+              return null;
+            }
+          };
+
+          imageBase64 = await generateFallbackCover();
+        }
+
+        if (imageBase64) setEndingCover(imageBase64);
+      } finally {
+        setEndingCoverGenerating(false);
+      }
+    };
+
+    run();
+  }, [gameEnded, endingCover, endingCoverGenerating, currentNode, runtimeScript.nodes, runtimeScript.heroineName, userProfile.name, affinity, authKey, currentBackground, assets.backgrounds, assets.heroine?.normal, assets.protagonist?.normal]);
+
+  // Helper for Animation Class
+  const getSpriteAnimClass = (emotion: string) => {
+    switch (emotion) {
+      case 'happy': return 'animate-bounce-gentle';
+      case 'angry': return 'animate-shake';
+      case 'surprised': return 'animate-pop';
+      case 'shy': return 'animate-breathe';
+      default: return 'animate-breathe';
+    }
+  };
+
+  if (!hasStarted) {
+      return (
+          <div className="relative w-full h-full flex flex-col items-center justify-center bg-gray-100 z-50">
+               <div className="absolute inset-0 opacity-10 filter grayscale contrast-150">
+                 {Object.values(assets.backgrounds)[0] && (
+                     <img src={`data:image/png;base64,${Object.values(assets.backgrounds)[0]}`} className="w-full h-full object-cover" alt="" />
+                 )}
+               </div>
+               <div className={`z-10 text-center space-y-4 ${d('lg:space-y-6')}`}>
+                   <h2 className={`text-2xl ${d('lg:text-4xl')} font-black tracking-tighter uppercase animate-float`}>准备就绪</h2>
+                   <button 
+                     onClick={handleStartGame}
+                     className={`bg-black text-white px-8 py-3 ${d('lg:px-12 lg:py-4')} font-bold text-lg ${d('lg:text-xl')} uppercase tracking-widest hover:bg-white hover:text-black border-2 border-black transition-all`}
+                   >
+                       开始
+                   </button>
+               </div>
+          </div>
+      );
+  }
+
+  if (gameEnded) {
+    return (
+      <div className="relative w-full h-full flex flex-col items-center justify-center bg-black overflow-hidden">
+         {endingCover && (
+           <div className="absolute inset-0">
+             <img
+               src={`data:image/png;base64,${endingCover}`}
+               className="w-full h-full object-cover"
+               alt="纪念合照"
+             />
+             <div className="absolute inset-0 bg-black/40" />
+           </div>
+         )}
+         {!endingCover && (
+           <div className="absolute inset-0 opacity-20">
+             {Object.values(assets.backgrounds)[0] && (
+               <img
+                 src={`data:image/png;base64,${Object.values(assets.backgrounds)[0]}`}
+                 className="w-full h-full object-cover"
+                 alt="背景"
+               />
+             )}
+           </div>
+         )}
+         <div className={`relative z-10 bg-white/95 backdrop-blur-md p-6 ${d('lg:p-12')} border border-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] text-center max-w-lg animate-pop m-4`}>
+            <h1 className={`text-4xl ${d('lg:text-6xl')} font-black mb-4 ${d('lg:mb-6')} uppercase`}>完</h1>
+            <div className={`mb-4 ${d('lg:mb-8')} border-t border-b border-gray-200 py-4`}>
+               <p className={`text-[10px] ${d('lg:text-xs')} text-gray-500 font-mono-tech mb-2`}>好感度</p>
+               <div className={`text-6xl ${d('lg:text-8xl')} font-black`}>{affinity}%</div>
+            </div>
+            {endingCoverGenerating && (
+              <p className="text-[10px] lg:text-xs text-gray-500 font-mono-tech mb-2">
+                正在生成纪念合照…
+              </p>
+            )}
+            <div className="space-y-4">
+                <Button onClick={handleSaveGame} className="w-full" disabled={isSaving} isTouch={isTouchDevice}>
+                    {isSaving ? "正在存档..." : "存档记录"}
+                </Button>
+                {saveMessage && <p className="text-green-600 font-mono-tech text-xs">{saveMessage}</p>}
+                <Button onClick={onExit} variant="secondary" className="w-full" isTouch={isTouchDevice}>返回根目录</Button>
+            </div>
+         </div>
+      </div>
+    );
+  }
+
+  if (!currentNode) return null;
+
+  return (
+    <div className="relative w-full h-full overflow-hidden bg-black select-none font-sans">
+      
+      {/* Background with Ken Burns & Crossfade */}
+      <div className="absolute inset-0 z-0 overflow-hidden">
+        {currentBackground && (
+          <div key={currentBackground} className="absolute inset-0 w-full h-full animate-fade-in">
+             <img 
+               src={`data:image/png;base64,${currentBackground}`} 
+               className="w-full h-full object-cover filter brightness-[0.85] contrast-110 animate-ken-burns origin-center" 
+               alt="背景" 
+             />
+          </div>
+        )}
+      </div>
+
+      {/* Love Meter / Stats (Z-50) */}
+      <div className={`absolute top-0 left-0 z-50 p-2 ${d('lg:p-6')}`}>
+         <div className={`bg-white/90 backdrop-blur-md border border-black p-1 ${d('lg:p-3')} flex items-center gap-2 ${d('lg:gap-4')} shadow-md transition-all hover:scale-105 origin-top-left scale-90 ${d('lg:scale-100')}`}>
+            <div className="flex flex-col">
+               <span className={`text-[8px] ${d('lg:text-[10px]')} font-mono-tech text-gray-500 uppercase`}>同步率</span>
+               <span className={`text-sm ${d('lg:text-2xl')} font-black`}>{affinity}%</span>
+            </div>
+            <div className={`w-16 ${d('lg:w-32')} h-1 ${d('lg:h-2')} bg-gray-200 overflow-hidden`}>
+               <div className="h-full bg-black transition-all duration-1000 ease-out" style={{ width: `${affinity}%` }}></div>
+            </div>
+         </div>
+      </div>
+
+      {/* Sprites (Z-10) - BEHIND Dialogue Box */}
+      <div className={`absolute inset-0 z-10 flex items-end justify-center px-4 ${d('lg:px-20')} pb-0 pointer-events-none`}>
+         
+	         {/* Protagonist (Left) */}
+	         <div 
+	           className={`absolute left-[2%] bottom-0 transition-all duration-500 ease-out origin-bottom
+	           ${currentNode.speaker === SpeakerType.PROTAGONIST 
+	             ? 'z-10 scale-100 filter-none' 
+	             : 'z-0 scale-95 opacity-100'}`}
+	         >
+            <img 
+               key={`${currentNode.speaker}-${currentNode.emotion}`}
+               src={`data:image/png;base64,${assets.protagonist[currentNode.emotion as keyof typeof assets.protagonist] || assets.protagonist.normal}`} 
+               className={`h-[78vh] ${d('lg:h-[92vh]')} object-contain drop-shadow-2xl ${currentNode.speaker === SpeakerType.PROTAGONIST ? getSpriteAnimClass(currentNode.emotion) : ''}`}
+               alt="主角"
+            />
+         </div>
+
+	         {/* Heroine (Right) */}
+	         <div 
+	           className={`absolute right-[2%] bottom-0 transition-all duration-500 ease-out origin-bottom
+	           ${currentNode.speaker === SpeakerType.HEROINE 
+	             ? 'z-10 scale-100 filter-none' 
+	             : 'z-0 scale-95 opacity-100'}`}
+	         >
+            <img 
+               key={`${currentNode.speaker}-${currentNode.emotion}`}
+               src={`data:image/png;base64,${assets.heroine[currentNode.emotion as keyof typeof assets.heroine] || assets.heroine.normal}`} 
+               className={`h-[88vh] ${d('lg:h-[105vh]')} object-contain drop-shadow-2xl ${currentNode.speaker === SpeakerType.HEROINE ? getSpriteAnimClass(currentNode.emotion) : ''}`}
+               alt="女主角"
+            />
+         </div>
+      </div>
+
+      {/* Choices Overlay (Z-60) */}
+      {currentNode.choices && !isUserChoiceNode && (
+        <div className="absolute inset-0 z-[60] bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in">
+           <div className={`w-full max-w-xl space-y-2 ${d('lg:space-y-4')}`}>
+             <div className={`text-[10px] ${d('lg:text-xs')} font-mono-tech text-white/80 mb-1 ${d('lg:mb-2')} uppercase text-center tracking-widest`}>需要选择</div>
+             {currentNode.choices.map((choice, idx) => (
+               <button
+                 key={idx}
+                 onClick={() => handleChoice(choice)}
+                 className={`w-full bg-white hover:bg-black text-black hover:text-white font-bold py-2 px-3 ${d('lg:py-6 lg:px-8')} border-2 ${d('lg:border-4')} border-black shadow-[4px_4px_0px_0px_rgba(255,255,255,0.5)] ${d('lg:shadow-[8px_8px_0px_0px_rgba(255,255,255,0.5)]')} hover:shadow-[8px_8px_0px_0px_rgba(255,255,255,1)] transition-all text-left group transform hover:translate-x-2 text-xs ${d('lg:text-base')}`}
+               >
+	                 <span className="mr-2 lg:mr-4 font-mono-tech text-gray-400 group-hover:text-white">0{idx + 1} {'//'}</span> {choice.text}
+	               </button>
+	             ))}
+           </div>
+        </div>
+      )}
+
+      {/* User-built Choice Overlay (Z-60) */}
+      {isUserChoiceNode && (
+        <div className="absolute inset-0 z-[60] bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in">
+          <div className={`w-full max-w-xl space-y-2 ${d('lg:space-y-4')}`}>
+            <div className={`text-[10px] ${d('lg:text-xs')} font-mono-tech text-white/80 mb-1 ${d('lg:mb-2')} uppercase text-center tracking-widest`}>
+              需要选择
+            </div>
+
+            <div className="bg-white/95 border-2 border-black p-3 lg:p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.5)] space-y-3">
+              <div className="text-xs lg:text-base font-bold text-gray-900">
+                {currentNode.choicePromptCN || '请点击“新建”写出你的回答/行动，马上开始续写。'}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  value={newOptionText}
+                  onChange={(e) => setNewOptionText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addUserOptionAndStart();
+                    }
+                  }}
+                  disabled={isContinuing}
+                  placeholder="输入一个选项，比如：我鼓起勇气邀请她放学一起回家。"
+                  className="flex-1 border border-black/30 p-2 lg:p-3 text-sm lg:text-base outline-none focus:ring-2 focus:ring-black/30 bg-white"
+                />
+                <button
+                  onClick={addUserOptionAndStart}
+                  disabled={isContinuing || newOptionText.trim().length === 0}
+                  className="bg-black text-white font-bold px-3 lg:px-4 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  新建
+                </button>
+              </div>
+
+              {continueError && (
+                <div className="text-[10px] lg:text-xs text-red-700 font-mono-tech">
+                  {continueError}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {(currentNode.choices || []).length === 0 && (
+                  <div className="text-[10px] lg:text-xs text-gray-500 font-mono-tech">
+                    输入一个选项并点“新建”，会立刻流式生成；收到第 1 个节点就自动进入游玩。
+                  </div>
+                )}
+
+                {(currentNode.choices || []).map((choice, idx) => {
+                  const isThisLoading = isContinuing && continuingChoiceIndex === idx;
+                  const canJump = !!choice.nextNodeId && !!runtimeScript.nodes[choice.nextNodeId];
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => handleUserChoiceSelect(choice, idx)}
+                      disabled={isContinuing && !isThisLoading}
+                      className={`w-full flex items-center bg-white hover:bg-black text-black hover:text-white font-bold py-2 px-3 ${d('lg:py-4 lg:px-6')} border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,0.25)] hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,0.35)] transition-all text-left group transform hover:translate-x-1 text-xs ${d('lg:text-base')} disabled:opacity-60 disabled:cursor-not-allowed`}
+                    >
+                      <span className="mr-2 lg:mr-4 font-mono-tech text-gray-400 group-hover:text-white">
+                        0{idx + 1} {'//'}
+                      </span>
+                      <span className="flex-1">{choice.text}</span>
+                      <span className="ml-3 flex items-center gap-2">
+                        {canJump && !isThisLoading && (
+                          <span className="text-[10px] lg:text-xs font-mono-tech text-gray-500 group-hover:text-white/80">
+                            已就绪
+                          </span>
+                        )}
+                        {isThisLoading && (
+                          <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin group-hover:border-white group-hover:border-t-transparent" />
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Streaming wait overlay */}
+      {waitingForNodeId && (
+        <div className="absolute inset-0 z-[65] bg-black/30 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white/95 border-2 border-black px-4 py-3 lg:px-6 lg:py-4 shadow-[6px_6px_0px_0px_rgba(0,0,0,0.35)] text-center">
+            <div className="text-xs lg:text-sm font-mono-tech text-gray-700">正在生成</div>
+            <div className="text-sm lg:text-base font-bold text-gray-900 mt-1">正在生成下一句…</div>
+          </div>
+        </div>
+      )}
+
+      {/* UI Controls (Z-60) */}
+      <div className={`absolute top-0 right-0 p-2 ${d('lg:p-6')} z-[60] flex gap-2 scale-90 ${d('lg:scale-100')} origin-top-right`}>
+         <Button
+           variant="secondary"
+           onClick={goBackToLastBranch}
+           disabled={!canGoBackToLastBranch()}
+           isTouch={isTouchDevice}
+           className={`!px-2 !py-1 ${d('lg:!px-4 lg:!py-2')} text-[10px] ${d('lg:text-xs')} bg-white/90 backdrop-blur`}
+         >
+           返回
+         </Button>
+         <Button variant="secondary" onClick={handleSaveGame} disabled={isSaving} isTouch={isTouchDevice} className={`!px-2 !py-1 ${d('lg:!px-4 lg:!py-2')} text-[10px] ${d('lg:text-xs')} bg-white/90 backdrop-blur`}>
+            {isSaving ? "保存中…" : "保存"}
+         </Button>
+         <Button variant="primary" onClick={onExit} isTouch={isTouchDevice} className={`!px-2 !py-1 ${d('lg:!px-4 lg:!py-2')} text-[10px] ${d('lg:text-xs')}`}>
+            退出
+         </Button>
+      </div>
+      
+      {saveMessage && (
+        <div className={`absolute top-12 ${d('lg:top-20')} right-6 bg-black text-white px-3 py-1 text-[10px] ${d('lg:text-xs')} font-mono-tech animate-glitch z-[70]`}>
+            {saveMessage}
+        </div>
+      )}
+
+      {/* Dialogue Box Container (Z-20) - ON TOP OF SPRITES */}
+      {/* Positioned at absolute bottom, height determines itself based on content */}
+      <div 
+        className="absolute bottom-0 left-0 w-full z-20 pointer-events-auto cursor-pointer"
+        onClick={handleNext}
+      >
+        <div className="w-full relative">
+           
+           {/* Name Tag - Adjusted to sit nicely above the border */}
+           <div className={`absolute -top-4 left-0 ${d('lg:left-12')} bg-black text-white px-3 py-0.5 ${d('lg:px-6 lg:py-2')} text-[10px] ${d('lg:text-base')} font-bold tracking-widest uppercase transform skew-x-[-10deg] shadow-lg origin-bottom-left z-30`}>
+             <div className="skew-x-[10deg]">{currentNode.speaker === SpeakerType.HEROINE ? runtimeScript.heroineName : '我'}</div>
+           </div>
+
+           {/* Text Container */}
+           {/* h-auto + pb-2 means it only takes up necessary space. No fixed min-height. */}
+           <div className={`w-full border-t-2 ${d('lg:border-t-4')} border-black bg-white/95 backdrop-blur-md pt-2 pb-2 px-3 ${d('lg:pt-6 lg:pb-8 lg:px-24')} relative shadow-[0_-5px_20px_rgba(0,0,0,0.2)]`}>
+              <div className="w-full max-w-screen-2xl mx-auto">
+                {/* Text Font Size reduced to text-sm for mobile */}
+                <p className={`text-sm ${d('lg:text-3xl')} font-medium leading-tight ${d('lg:leading-relaxed')} text-gray-900`}>
+                   <Typewriter text={currentNode.textCN.trim()} speed={25} />
+                </p>
+                {currentNode.textJP && currentNode.speaker === SpeakerType.HEROINE && (
+                  <p className={`text-[9px] ${d('lg:text-base')} text-gray-500 mt-0.5 ${d('lg:mt-3')} font-mono-tech tracking-wide border-l-2 border-gray-300 pl-1 ${d('lg:pl-3')}`}>
+                    {currentNode.textJP}
+                  </p>
+                )}
+              </div>
+           </div>
+           
+           {/* Next Indicator */}
+           {!currentNode.choices && currentNode.nodeType !== 'user_choice' && (
+             <div className={`absolute bottom-1 right-2 ${d('lg:bottom-4 lg:right-16')} animate-bounce text-black font-black text-sm ${d('lg:text-3xl')} opacity-50 z-50`}>
+               ▼
+             </div>
+           )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default VisualNovelPlayer;

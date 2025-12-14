@@ -1,0 +1,7 @@
+{
+  "name": "RenYuki",
+  "description": "意淫你的嘎拉",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
