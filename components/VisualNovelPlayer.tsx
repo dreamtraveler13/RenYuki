@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GameScript, GeneratedAssets, SpeakerType, Choice, StoryNode, UserProfile } from '../types';
 import Button from './Button';
 import Typewriter from './Typewriter';
-import { generateMemoryCover } from '../services/aiService';
 import { saveGame } from '../services/storageService';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
@@ -34,7 +33,7 @@ const decodeStandardAudio = async (base64Data: string, audioContext: AudioContex
   return await audioContext.decodeAudioData(bytes.buffer);
 };
 
-const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initialNodeId, initialAffinity, onExit, onGameEnd, isTouchDevice, authKey }) => {
+const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initialNodeId, initialAffinity, onExit, onGameEnd, isTouchDevice }) => {
   const [runtimeScript, setRuntimeScript] = useState<GameScript>(script);
   const [hasStarted, setHasStarted] = useState(false);
   const [currentNodeId, setCurrentNodeId] = useState<string>(initialNodeId || script.startNodeId);
@@ -44,6 +43,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const [endNotified, setEndNotified] = useState(false);
   const [endingCover, setEndingCover] = useState<string | null>(null);
   const [endingCoverGenerating, setEndingCoverGenerating] = useState(false);
+  const [showEndingCoverModal, setShowEndingCoverModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [currentBgmKey, setCurrentBgmKey] = useState<string | null>(null);
@@ -553,154 +553,112 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
     }
   }, [waitingForNodeId, runtimeScript]);
 
-  // Generate a sweet couple photo as memory cover when the story is close to the end
+  // 游戏结束后生成“回忆相片”（纯本地合成，不调用 AI）
   useEffect(() => {
-    const collectLookaheadNodes = (start: StoryNode | undefined, depth: number): StoryNode[] => {
-      if (!start) return [];
-      const queue: Array<{ node: StoryNode; distance: number }> = [];
-      const visited = new Set<string>();
-      const out: StoryNode[] = [];
+    if (!gameEnded) return;
+    if (endingCover) return;
+    if (endingCoverGenerating) return;
+    if (showEndingCoverModal) return;
 
-      const enqueue = (node: StoryNode, distance: number) => {
-        if (visited.has(node.id) || distance > depth) return;
-        visited.add(node.id);
-        queue.push({ node, distance });
-      };
+    let canceled = false;
 
-      const pushNeighbors = (node: StoryNode, distance: number) => {
-        if (node.nextNodeId && runtimeScript.nodes[node.nextNodeId]) {
-          enqueue(runtimeScript.nodes[node.nextNodeId], distance + 1);
-        }
-        if (node.choices) {
-          node.choices.forEach((choice) => {
-            const target = runtimeScript.nodes[choice.nextNodeId];
-            if (target) enqueue(target, distance + 1);
-          });
-        }
-      };
+    const toDataUrl = (base64: string) =>
+      base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
 
-      pushNeighbors(start, 0);
+    const loadImage = (src: string) =>
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = toDataUrl(src);
+      });
 
-      while (queue.length > 0) {
-        const { node, distance } = queue.shift()!;
-        out.push(node);
-        pushNeighbors(node, distance);
+    const pickHeroineSprite = () =>
+      assets.heroine?.shy || assets.heroine?.happy || assets.heroine?.normal;
+
+    const pickProtagonistSprite = () =>
+      assets.protagonist?.happy || assets.protagonist?.normal;
+
+    const composePhoto = async (): Promise<string | null> => {
+      const bgRaw = currentBackground || Object.values(assets.backgrounds)[0];
+      const heroRaw = pickHeroineSprite();
+      const protagRaw = pickProtagonistSprite();
+      if (!bgRaw || !heroRaw || !protagRaw) return null;
+
+      try {
+        const [bgImg, heroImg, protagImg] = await Promise.all([
+          loadImage(bgRaw),
+          loadImage(heroRaw),
+          loadImage(protagRaw),
+        ]);
+
+        const canvas = document.createElement('canvas');
+        // 4:3 相片比例
+        canvas.width = 1200;
+        canvas.height = 900;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+
+        // 背景铺满
+        const scale = Math.max(canvas.width / bgImg.width, canvas.height / bgImg.height);
+        const bgW = bgImg.width * scale;
+        const bgH = bgImg.height * scale;
+        ctx.drawImage(bgImg, (canvas.width - bgW) / 2, (canvas.height - bgH) / 2, bgW, bgH);
+
+        // 轻微色调与暗角，让更像“相片”
+        ctx.fillStyle = 'rgba(255, 245, 235, 0.06)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const vignette = ctx.createRadialGradient(
+          canvas.width / 2,
+          canvas.height / 2,
+          canvas.height * 0.2,
+          canvas.width / 2,
+          canvas.height / 2,
+          canvas.height * 0.8
+        );
+        vignette.addColorStop(0, 'rgba(0,0,0,0)');
+        vignette.addColorStop(1, 'rgba(0,0,0,0.28)');
+        ctx.fillStyle = vignette;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 角色合成（底部对齐，留出相片边缘的安全区）
+        const safeX = canvas.width * 0.10;
+
+        const pHeight = canvas.height * 0.92;
+        const pScale = pHeight / protagImg.height;
+        const pWidth = protagImg.width * pScale;
+        ctx.drawImage(protagImg, safeX, canvas.height - pHeight, pWidth, pHeight);
+
+        const hHeight = canvas.height * 0.96;
+        const hScale = hHeight / heroImg.height;
+        const hWidth = heroImg.width * hScale;
+        ctx.drawImage(heroImg, canvas.width - hWidth - safeX, canvas.height - hHeight, hWidth, hHeight);
+
+        return canvas.toDataURL('image/png').split(',')[1];
+      } catch (e) {
+        console.warn('Memory photo compose failed', e);
+        return null;
       }
-
-      return out;
     };
-
-    const isNearEnding = () => {
-      if (!currentNode) return false;
-      const lookahead = collectLookaheadNodes(currentNode, 4);
-      if (lookahead.length === 0) return false;
-      return lookahead.some(
-        (n) =>
-          n.nodeType !== 'user_choice' &&
-          (!n.choices || n.choices.length === 0) &&
-          (!n.nextNodeId || !runtimeScript.nodes[n.nextNodeId])
-      );
-    };
-
-    const nearEnding = isNearEnding();
-
-    if ((!gameEnded && !nearEnding) || endingCover || endingCoverGenerating) return;
-
-    const node = currentNode;
-    const scenePrompt =
-      node?.backgroundPrompt ||
-      'a romantic Japanese high school setting at dusk, gentle atmosphere';
 
     const run = async () => {
       setEndingCoverGenerating(true);
+      setShowEndingCoverModal(true);
       try {
-        let imageBase64: string | null = null;
-
-        try {
-          imageBase64 = await generateMemoryCover(
-            {
-              heroineName: runtimeScript.heroineName,
-              protagonistName: userProfile.name,
-              scenePrompt,
-              affinity,
-            },
-            authKey
-          );
-        } catch (e) {
-          console.warn('Failed to generate memory cover', e);
-        }
-
-        if (!imageBase64) {
-          const toDataUrl = (base64: string) =>
-            base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
-
-          const generateFallbackCover = async (): Promise<string | null> => {
-            const bgRaw = currentBackground || Object.values(assets.backgrounds)[0];
-            const heroRaw = assets.heroine?.normal;
-            const protagRaw = assets.protagonist?.normal;
-            if (!bgRaw || !heroRaw || !protagRaw) return null;
-
-            const loadImage = (src: string) =>
-              new Promise<HTMLImageElement>((resolve, reject) => {
-                const img = new Image();
-                img.crossOrigin = 'anonymous';
-                img.onload = () => resolve(img);
-                img.onerror = reject;
-                img.src = toDataUrl(src);
-              });
-
-            try {
-              const [bgImg, heroImg, protagImg] = await Promise.all([
-                loadImage(bgRaw),
-                loadImage(heroRaw),
-                loadImage(protagRaw),
-              ]);
-
-              const canvas = document.createElement('canvas');
-              canvas.width = 1280;
-              canvas.height = 720;
-              const ctx = canvas.getContext('2d');
-              if (!ctx) return null;
-
-              const scale = Math.max(canvas.width / bgImg.width, canvas.height / bgImg.height);
-              const bgW = bgImg.width * scale;
-              const bgH = bgImg.height * scale;
-              ctx.drawImage(bgImg, (canvas.width - bgW) / 2, (canvas.height - bgH) / 2, bgW, bgH);
-
-              const pHeight = canvas.height * 0.9;
-              const pScale = pHeight / protagImg.height;
-              const pWidth = protagImg.width * pScale;
-              ctx.drawImage(protagImg, canvas.width * 0.05, canvas.height - pHeight, pWidth, pHeight);
-
-              const hHeight = canvas.height * 0.95;
-              const hScale = hHeight / heroImg.height;
-              const hWidth = heroImg.width * hScale;
-              ctx.drawImage(
-                heroImg,
-                canvas.width - hWidth - canvas.width * 0.05,
-                canvas.height - hHeight,
-                hWidth,
-                hHeight
-              );
-
-              return canvas.toDataURL('image/png').split(',')[1];
-            } catch (e) {
-              console.warn('Fallback cover generation failed', e);
-              return null;
-            }
-          };
-
-          imageBase64 = await generateFallbackCover();
-        }
-
-        if (imageBase64) setEndingCover(imageBase64);
+        const imageBase64 = await composePhoto();
+        if (!canceled && imageBase64) setEndingCover(imageBase64);
       } finally {
-        setEndingCoverGenerating(false);
+        if (!canceled) setEndingCoverGenerating(false);
       }
     };
 
     run();
-  }, [gameEnded, endingCover, endingCoverGenerating, currentNode, runtimeScript.nodes, runtimeScript.heroineName, userProfile.name, affinity, authKey, currentBackground, assets.backgrounds, assets.heroine?.normal, assets.protagonist?.normal]);
+    return () => {
+      canceled = true;
+    };
+  }, [gameEnded, endingCover, endingCoverGenerating, showEndingCoverModal, currentBackground, assets.backgrounds, assets.heroine, assets.protagonist]);
 
   // Helper for Animation Class
   const getSpriteAnimClass = (emotion: string) => {
@@ -737,27 +695,73 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   if (gameEnded) {
     return (
       <div className="relative w-full h-full flex flex-col items-center justify-center bg-black overflow-hidden">
-         {endingCover && (
-           <div className="absolute inset-0">
+         <div className="absolute inset-0 opacity-25">
+           {(currentBackground || Object.values(assets.backgrounds)[0]) && (
              <img
-               src={`data:image/png;base64,${endingCover}`}
+               src={`data:image/png;base64,${currentBackground || Object.values(assets.backgrounds)[0]}`}
                className="w-full h-full object-cover"
-               alt="纪念合照"
+               alt="背景"
              />
-             <div className="absolute inset-0 bg-black/40" />
+           )}
+         </div>
+         <div className="absolute inset-0 bg-black/55" />
+
+         {/* 回忆相片弹窗 */}
+         {showEndingCoverModal && (
+           <div
+             className="absolute inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+             onClick={() => setShowEndingCoverModal(false)}
+           >
+             <div
+               className="relative"
+               onClick={(e) => {
+                 e.stopPropagation();
+               }}
+             >
+               <div className="bg-white shadow-[14px_14px_0px_0px_rgba(0,0,0,0.65)] border-2 border-black p-4 pb-10 rotate-[-2deg] animate-photo-pop">
+                 <div className="relative w-[min(82vw,560px)] aspect-[4/3] bg-black overflow-hidden border border-black">
+                   {endingCover ? (
+                     <>
+                       <img
+                         src={`data:image/png;base64,${endingCover}`}
+                         className="absolute inset-0 w-full h-full object-cover"
+                         alt="回忆相片"
+                       />
+                       <div
+                         className="absolute inset-0 opacity-25 mix-blend-overlay pointer-events-none"
+                         style={{
+                           backgroundImage:
+                             'repeating-linear-gradient(0deg, rgba(255,255,255,0.06) 0px, rgba(255,255,255,0.06) 1px, rgba(0,0,0,0) 2px, rgba(0,0,0,0) 4px)',
+                         }}
+                       />
+                     </>
+                   ) : endingCoverGenerating ? (
+                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
+                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                       <div className="text-xs font-mono-tech opacity-90">正在生成回忆相片…</div>
+                     </div>
+                   ) : (
+                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
+                       <div className="text-xs font-mono-tech opacity-90">回忆相片生成失败</div>
+                       <div className="text-[10px] font-mono-tech opacity-70">可以关闭此窗口继续</div>
+                     </div>
+                   )}
+                 </div>
+                 <div className="mt-3 text-center text-xs font-mono-tech text-gray-700">
+                   回忆相片
+                 </div>
+               </div>
+
+               <button
+                 className="absolute -top-3 -right-3 bg-black text-white w-8 h-8 border-2 border-white shadow-[4px_4px_0px_0px_rgba(0,0,0,0.35)]"
+                 onClick={() => setShowEndingCoverModal(false)}
+               >
+                 ×
+               </button>
+             </div>
            </div>
          )}
-         {!endingCover && (
-           <div className="absolute inset-0 opacity-20">
-             {Object.values(assets.backgrounds)[0] && (
-               <img
-                 src={`data:image/png;base64,${Object.values(assets.backgrounds)[0]}`}
-                 className="w-full h-full object-cover"
-                 alt="背景"
-               />
-             )}
-           </div>
-         )}
+
          <div className={`relative z-10 bg-white/95 backdrop-blur-md p-6 ${d('lg:p-12')} border border-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] text-center max-w-lg animate-pop m-4`}>
             <h1 className={`text-4xl ${d('lg:text-6xl')} font-black mb-4 ${d('lg:mb-6')} uppercase`}>完</h1>
             <div className={`mb-4 ${d('lg:mb-8')} border-t border-b border-gray-200 py-4`}>
@@ -766,7 +770,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
             </div>
             {endingCoverGenerating && (
               <p className="text-[10px] lg:text-xs text-gray-500 font-mono-tech mb-2">
-                正在生成纪念合照…
+                正在生成回忆相片…
               </p>
             )}
             <div className="space-y-4">

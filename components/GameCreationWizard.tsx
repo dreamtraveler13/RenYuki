@@ -432,7 +432,7 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCancel })
 	                    <span className="text-xs md:text-sm font-bold tracking-widest uppercase">MAX MODE</span>
 	                  </label>
 	                  <div className="text-[10px] md:text-xs text-gray-500 font-mono-tech">
-	                    立绘数量提升：主角 4 / 女主 6
+	                    开启 MAX MODE 后，主角和女主立绘数量和质量会显著提升。
 	                  </div>
 	               </div>
 	            </div>
