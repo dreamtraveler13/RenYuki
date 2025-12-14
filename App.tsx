@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [showPlaza, setShowPlaza] = useState(false);
   const [publishingSaveId, setPublishingSaveId] = useState<number | null>(null);
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
+  const publishTimerRef = useRef<number | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [showIosPrompt, setShowIosPrompt] = useState(false);
   const [isPortrait, setIsPortrait] = useState(false);
@@ -127,6 +128,16 @@ const App: React.FC = () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!publishMessage) return;
+    if (publishTimerRef.current) window.clearTimeout(publishTimerRef.current);
+    publishTimerRef.current = window.setTimeout(() => setPublishMessage(null), 2600);
+    return () => {
+      if (publishTimerRef.current) window.clearTimeout(publishTimerRef.current);
+      publishTimerRef.current = null;
+    };
+  }, [publishMessage]);
 
   useEffect(() => {
     // 1. Touch Detection (use pointer capability, not viewport ratio)
