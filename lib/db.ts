@@ -5,14 +5,12 @@ export type DbSchema = {
   users: Record<string, any>;
   usernameToId: Record<string, string>;
   orders: Record<string, any>;
-  plaza: Record<string, any>;
 };
 
 const defaultDb = (): DbSchema => ({
   users: {},
   usernameToId: {},
   orders: {},
-  plaza: {},
 });
 
 const getDataDir = () => process.env.RENYUKI_DATA_DIR || path.join(process.cwd(), 'data');
@@ -29,7 +27,6 @@ export const readDb = async (): Promise<DbSchema> => {
       usernameToId:
         (parsed as any).usernameToId && typeof (parsed as any).usernameToId === 'object' ? (parsed as any).usernameToId : {},
       orders: (parsed as any).orders && typeof (parsed as any).orders === 'object' ? (parsed as any).orders : {},
-      plaza: (parsed as any).plaza && typeof (parsed as any).plaza === 'object' ? (parsed as any).plaza : {},
     };
   } catch (err: any) {
     if (err?.code === 'ENOENT') return defaultDb();
