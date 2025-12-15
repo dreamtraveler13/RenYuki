@@ -54,6 +54,10 @@ const decodeUrlAudio = async (url: string, audioContext: AudioContext): Promise<
 const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initialNodeId, initialAffinity, onExit, onGameEnd, isTouchDevice, enableContinue = true }) => {
   const [runtimeScript, setRuntimeScript] = useState<GameScript>(script);
   const [hasStarted, setHasStarted] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState<string | null>(null);
+  const [allowNonFullscreen, setAllowNonFullscreen] = useState(false);
   const [currentNodeId, setCurrentNodeId] = useState<string>(initialNodeId || script.startNodeId);
   const [affinity, setAffinity] = useState(initialAffinity || 50);
   const [currentBackground, setCurrentBackground] = useState<string | null>(null);
@@ -84,6 +88,19 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const isRestoringHistoryRef = useRef(false);
 
   useEffect(() => {
+    const standalone =
+      window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+    setIsStandalone(!!standalone);
+
+    const update = () => setIsFullScreen(!!document.fullscreenElement);
+    update();
+    document.addEventListener('fullscreenchange', update);
+    return () => {
+      document.removeEventListener('fullscreenchange', update);
+    };
+  }, []);
+
+  useEffect(() => {
     setRuntimeScript(script);
     setCurrentNodeId(initialNodeId || script.startNodeId);
     setAffinity(initialAffinity || 50);
@@ -111,8 +128,36 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
     };
   }, []);
 
-  const handleStartGame = async () => {
+  const fullscreenSupported =
+    typeof document !== 'undefined' && typeof document.documentElement?.requestFullscreen === 'function';
+  const shouldRequireFullscreen = isTouchDevice && !isStandalone && fullscreenSupported && !allowNonFullscreen;
+
+  const requestFullscreen = async () => {
+    if (!fullscreenSupported) return false;
+    if (document.fullscreenElement) return true;
+    try {
+      await document.documentElement.requestFullscreen();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleStartGame = async (forceStart = false) => {
     if (!audioContextRef.current) return;
+    setFullscreenError(null);
+
+    if (shouldRequireFullscreen && !isFullScreen) {
+      const ok = await requestFullscreen();
+      if (!ok && !forceStart) {
+        setFullscreenError('未能进入全屏：请点击“进入全屏”或在浏览器菜单中选择全屏。');
+        return;
+      }
+      if (!ok && forceStart) {
+        setAllowNonFullscreen(true);
+      }
+    }
+
     await audioContextRef.current.resume();
     setHasStarted(true);
   };
@@ -755,12 +800,25 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
                </div>
                <div className={`z-10 text-center space-y-4 ${d('lg:space-y-6')}`}>
                    <h2 className={`text-2xl ${d('lg:text-4xl')} font-black tracking-tighter uppercase animate-float`}>准备就绪</h2>
+                   {fullscreenError && (
+                     <div className="text-[10px] font-mono-tech text-red-600 max-w-xs mx-auto">
+                       {fullscreenError}
+                     </div>
+                   )}
                    <button 
-                     onClick={handleStartGame}
+                     onClick={() => handleStartGame(false)}
                      className={`bg-black text-white px-8 py-3 ${d('lg:px-12 lg:py-4')} font-bold text-lg ${d('lg:text-xl')} uppercase tracking-widest hover:bg-white hover:text-black border-2 border-black transition-all`}
                    >
-                       开始
+                       {shouldRequireFullscreen && !isFullScreen ? '进入全屏并开始' : '开始'}
                    </button>
+                   {shouldRequireFullscreen && !isFullScreen && (
+                     <button
+                       onClick={() => handleStartGame(true)}
+                       className="block mx-auto text-[10px] font-mono-tech text-gray-600 hover:text-black transition-colors"
+                     >
+                       无法全屏？仍要开始
+                     </button>
+                   )}
                </div>
           </div>
       );
@@ -863,6 +921,29 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-black select-none font-sans">
+      {shouldRequireFullscreen && !isFullScreen && (
+        <div className="absolute inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6 overlay-fade-in">
+          <div className="bg-white text-black max-w-md w-full border-2 border-black shadow-2xl p-5 space-y-4 modal-scale-in">
+            <div className="text-lg font-black tracking-tight">需要全屏以继续游玩</div>
+            <div className="text-sm text-gray-700 leading-relaxed">
+              点击下方按钮进入全屏；若你的浏览器不支持，可选择继续（不推荐）。
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <Button onClick={() => requestFullscreen()} className="w-full" isTouch={isTouchDevice}>
+                进入全屏
+              </Button>
+              <Button
+                onClick={() => setAllowNonFullscreen(true)}
+                variant="secondary"
+                className="w-full"
+                isTouch={isTouchDevice}
+              >
+                继续（不全屏）
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Background with Ken Burns & Crossfade */}
       <div className="absolute inset-0 z-0 overflow-hidden">

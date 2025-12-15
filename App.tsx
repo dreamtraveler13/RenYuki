@@ -298,6 +298,96 @@ const App: React.FC = () => {
   };
   const startDevMode = () => setGameState(GameState.DEV);
 
+  const TouchHomeMenu = () => (
+    <div className="w-full h-full flex flex-col soft-fade-in">
+      {/* Golden ratio split: upper longer, lower shorter */}
+      <div className="relative bg-gray-100 overflow-hidden flex-[1.618]">
+        <div className="absolute top-0 -left-10 w-20 h-full bg-gray-200 transform skew-x-[-10deg]" />
+        <div className="absolute inset-0 flex items-end justify-center">
+          {galleryHeroines.length > 0 ? (
+            <div className="relative w-full h-full">
+              {galleryHeroines.map((h) => (
+                <div
+                  key={h.id}
+                  className="absolute bottom-0 left-1/2 -translate-x-1/2 transition-all duration-500 filter grayscale contrast-125"
+                  style={{
+                    zIndex: 10,
+                    opacity: 1,
+                  }}
+                >
+                  <img
+                    src={`data:image/png;base64,${h.image}`}
+                    className="h-[58vh] object-contain drop-shadow-2xl"
+                    alt={h.name}
+                  />
+                  <div className="absolute top-3 right-3 bg-black text-white text-[10px] font-mono-tech px-2 py-1 rounded-lg opacity-80">
+                    编号: {h.name.toUpperCase()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-3xl font-black text-gray-300 opacity-50 tracking-widest whitespace-nowrap">
+              NO_DATA / 无数据
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="relative bg-white px-6 pt-6 pb-8 flex-1">
+        {/* Divider line with logo "leaking" out of it */}
+        <div className="absolute left-0 right-0 top-16 -translate-y-1/2 px-6">
+          <div className="flex items-center gap-4">
+            <div className="h-px flex-1 bg-black/30" />
+            <div
+              className="font-black tracking-tighter leading-[0.8]"
+              style={{ fontSize: 'clamp(5.2rem, 22vw, 10.4rem)' }}
+            >
+              RenYuki
+            </div>
+            <div className="h-px flex-1 bg-black/30" />
+          </div>
+        </div>
+
+        <div className="mt-28 flex flex-col items-center text-center">
+          <h2
+            className="font-light uppercase tracking-[0.3em] whitespace-nowrap"
+            style={{ fontSize: 'clamp(0.95rem, 4.2vw, 1.6rem)' }}
+          >
+            意淫你的嘎拉
+          </h2>
+          <div className="w-20 h-2 bg-black mt-4" />
+        </div>
+
+        {/* Centered, slightly lower, more compact */}
+        <div className="mt-8 space-y-2 flex flex-col items-center">
+          <button
+            onClick={startCreation}
+            className="text-2xl font-bold hover:bg-black hover:text-white px-6 py-2 transition-all uppercase tracking-wider text-center active:scale-[0.99] rounded-xl"
+          >
+            01 // 创建新嘎拉
+          </button>
+          <button
+            onClick={openLoadMenu}
+            className="text-2xl font-bold hover:bg-black hover:text-white px-6 py-2 transition-all uppercase tracking-wider text-center active:scale-[0.99] rounded-xl"
+          >
+            02 // 读取记忆
+          </button>
+          <button
+            onClick={() => setShowPlaza(true)}
+            className="text-2xl font-bold hover:bg-black hover:text-white px-6 py-2 transition-all uppercase tracking-wider text-center active:scale-[0.99] rounded-xl"
+          >
+            03 // 嘎拉广场
+          </button>
+        </div>
+
+        <div className="mt-8 text-[10px] text-gray-400/60 leading-relaxed max-w-md select-none text-center mx-auto">
+          本站为 AI 生成内容演示/娱乐用途；请勿上传或生成违法、色情、暴力、侵权或涉及未成年人的内容。由用户输入/上传导致的后果由用户自行承担。
+        </div>
+      </div>
+    </div>
+  );
+
   const handleLogout = async () => {
     try {
       await authLogout();
@@ -328,6 +418,9 @@ const App: React.FC = () => {
   };
 
   const resetGame = () => {
+    if (typeof document !== 'undefined' && document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
     setGameState(GameState.HOME);
     setCurrentScript(null);
     setCurrentAssets(null);
@@ -414,15 +507,6 @@ const App: React.FC = () => {
 
   if (!isLoggedIn) return (
     <>
-      <div className="fixed top-4 right-4 z-[9999]">
-          <button 
-             onClick={toggleFullScreen}
-             className="bg-black text-white px-3 py-1 text-xs font-mono-tech border border-white opacity-50 hover:opacity-100 transition-opacity"
-          >
-            {isFullScreen ? '[ EXIT ]' : '[ FULL ]'}
-          </button>
-      </div>
-      
       {/* iOS Prompt Overlay - Only show if not covered by rotation prompt or if in portrait but not playing */}
       {iosPromptOverlay}
       {androidPromptOverlay}
@@ -501,7 +585,7 @@ const App: React.FC = () => {
       
       {/* GLOBAL: Landscape Enforcement Overlay */}
       {/* Applied globally when logged in to ensure mobile matches desktop layout */}
-      {isLoggedIn && isTouchDevice && isPortrait && !showIosPrompt && (
+      {gameState === GameState.PLAYING && isTouchDevice && isPortrait && !showIosPrompt && (
         <div className="fixed inset-0 z-[11000] bg-[#111] text-white flex flex-col items-center justify-center text-center p-6 overlay-fade-in">
             <div className="text-6xl mb-6 animate-bounce font-mono-tech">↻</div>
             <h2 className="text-2xl font-black uppercase tracking-widest mb-2">请旋转设备</h2>
@@ -518,14 +602,16 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto">
-         <button 
-           onClick={toggleFullScreen}
-           className="bg-black/80 backdrop-blur text-white px-4 py-1 text-[10px] font-mono-tech uppercase tracking-widest border border-gray-600 hover:bg-black transition-all rounded-b-lg shadow-lg opacity-30 hover:opacity-100"
-         >
+      {gameState === GameState.PLAYING && (
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto">
+          <button
+            onClick={toggleFullScreen}
+            className="bg-black/80 backdrop-blur text-white px-4 py-1 text-[10px] font-mono-tech uppercase tracking-widest border border-gray-600 hover:bg-black transition-all rounded-b-lg shadow-lg opacity-30 hover:opacity-100"
+          >
             {isFullScreen ? '退出全屏' : '进入全屏'}
-         </button>
-      </div>
+          </button>
+        </div>
+      )}
 
       {/* Decorative Background Grid */}
       <div className="absolute inset-0 z-0 opacity-10 pointer-events-none" 
@@ -536,7 +622,11 @@ const App: React.FC = () => {
         
         {/* Main Menu State */}
         {gameState === GameState.HOME && !showLoadMenu && (
-          <div className="w-full h-full grid grid-cols-12 soft-fade-in">
+          <>
+          {isTouchDevice && isPortrait ? (
+            <TouchHomeMenu />
+          ) : (
+            <div className="w-full h-full grid grid-cols-12 soft-fade-in">
              
              {/* LEFT: Typography & Nav */}
              <div className="col-span-5 h-full flex flex-col justify-center px-4 md:px-8 lg:px-20 relative bg-white border-r border-black z-20">
@@ -602,6 +692,8 @@ const App: React.FC = () => {
                 </div>
              </div>
           </div>
+          )}
+          </>
         )}
 
         {/* Load Menu Overlay */}
