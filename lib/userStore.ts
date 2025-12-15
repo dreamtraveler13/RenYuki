@@ -9,6 +9,9 @@ type UserRecord = {
   passwordSalt: string;
   passwordHash: string;
   coins: number;
+  policyStrikes?: number;
+  bannedAt?: string;
+  banReason?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -18,6 +21,7 @@ export type PublicUser = {
   username: string;
   displayName: string;
   coins: number;
+  bannedAt?: string;
   createdAt: string;
 };
 
@@ -49,6 +53,7 @@ const toPublicUser = (u: UserRecord): PublicUser => ({
   username: u.username,
   displayName: u.displayName,
   coins: u.coins,
+  bannedAt: u.bannedAt,
   createdAt: u.createdAt,
 });
 
@@ -58,7 +63,7 @@ export const getUserById = async (userId: string): Promise<PublicUser | null> =>
   return u ? toPublicUser(u) : null;
 };
 
-const getUserRecordById = async (userId: string): Promise<UserRecord | null> => {
+export const getUserRecordById = async (userId: string): Promise<UserRecord | null> => {
   const db = await readDb();
   const u = db.users[userId] as UserRecord | undefined;
   return u || null;
@@ -120,9 +125,42 @@ export const authenticateUser = async (params: {
 
   const record = await getUserRecordByUsername(username);
   if (!record) return null;
+  if (record.bannedAt) throw new Error('USER_BANNED');
   const ok = await verifyPassword(password, record.passwordSalt, record.passwordHash);
   if (!ok) return null;
   return toPublicUser(record);
+};
+
+export const isUserBanned = async (userId: string): Promise<boolean> => {
+  const u = await getUserRecordById(userId);
+  return !!u?.bannedAt;
+};
+
+export const recordPoliticalSensitiveStrike = async (
+  userId: string,
+  matched: string
+): Promise<{ strikes: number; banned: boolean; bannedAt?: string }> => {
+  return await updateDb((db) => {
+    const user = db.users[userId] as UserRecord | undefined;
+    if (!user) throw new Error('USER_NOT_FOUND');
+
+    if (user.bannedAt) {
+      return { strikes: user.policyStrikes || 0, banned: true, bannedAt: user.bannedAt };
+    }
+
+    const strikes = (user.policyStrikes || 0) + 1;
+    user.policyStrikes = strikes;
+    user.updatedAt = new Date().toISOString();
+
+    const banned = strikes >= 3;
+    if (banned) {
+      user.bannedAt = new Date().toISOString();
+      user.banReason = `CN_POLITICAL_SENSITIVE:${matched}`;
+    }
+
+    db.users[userId] = user;
+    return { strikes, banned, bannedAt: user.bannedAt };
+  });
 };
 
 export const consumeUserCoins = async (userId: string, cost: number): Promise<number> => {
@@ -132,6 +170,7 @@ export const consumeUserCoins = async (userId: string, cost: number): Promise<nu
   return await updateDb((db) => {
     const user = db.users[userId] as UserRecord | undefined;
     if (!user) throw new Error('USER_NOT_FOUND');
+    if (user.bannedAt) throw new Error('USER_BANNED');
     if (user.coins < intCost) throw new Error('INSUFFICIENT_COINS');
     user.coins -= intCost;
     user.updatedAt = new Date().toISOString();
@@ -158,4 +197,3 @@ export const getUserCoins = async (userId: string): Promise<number> => {
   const u = await getUserRecordById(userId);
   return u ? u.coins : 0;
 };
-

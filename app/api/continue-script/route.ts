@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { continueStory, continueStoryStream } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
+import { enforceNoCnPoliticalSensitive } from '@/lib/policy';
 
 export async function POST(req: NextRequest) {
-  if (!getUserIdFromRequest(req)) return NextResponse.json({ error: '未登录' }, { status: 401 });
+  const userId = getUserIdFromRequest(req);
+  if (!userId) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
   const payload = await req.json().catch(() => ({} as Record<string, any>));
 
@@ -18,6 +20,12 @@ export async function POST(req: NextRequest) {
   if (!userChoiceText.trim()) {
     return NextResponse.json({ error: 'userChoiceText is required' }, { status: 400 });
   }
+
+  const policyRes = await enforceNoCnPoliticalSensitive({
+    userId,
+    inputs: [protagonistName, heroineName, userChoiceText],
+  });
+  if (policyRes) return policyRes;
 
   if (stream) {
     const encoder = new TextEncoder();

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateProtagonist } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
+import { enforceNoCnPoliticalSensitive } from '@/lib/policy';
 
 export async function POST(req: NextRequest) {
-  if (!getUserIdFromRequest(req)) return NextResponse.json({ error: '未登录' }, { status: 401 });
+  const userId = getUserIdFromRequest(req);
+  if (!userId) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
   const { emotion, userPhotoBase64, referenceImageBase64, mimeType = 'image/jpeg' } = await req.json();
   if (!emotion) return NextResponse.json({ error: 'emotion is required' }, { status: 400 });
+  const policyRes = await enforceNoCnPoliticalSensitive({ userId, inputs: [emotion] });
+  if (policyRes) return policyRes;
   try {
     const imageUrl = await generateProtagonist(emotion, userPhotoBase64, referenceImageBase64, mimeType);
     return NextResponse.json({ imageUrl });

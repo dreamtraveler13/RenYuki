@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateScript } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
 import { consumeUserCoins, refundUserCoins } from '@/lib/userStore';
+import { enforceNoCnPoliticalSensitive } from '@/lib/policy';
 
 export async function POST(req: NextRequest) {
   const userId = getUserIdFromRequest(req);
@@ -9,6 +10,12 @@ export async function POST(req: NextRequest) {
 
   const { protagonistName, heroineName, plotDescription, maxMode } = await req.json();
   if (!protagonistName) return NextResponse.json({ error: 'protagonistName is required' }, { status: 400 });
+
+  const policyRes = await enforceNoCnPoliticalSensitive({
+    userId,
+    inputs: [protagonistName, heroineName, plotDescription],
+  });
+  if (policyRes) return policyRes;
 
   const isMax = maxMode === true || maxMode === 1 || maxMode === '1';
   const cost = isMax ? 2 : 1;
@@ -21,6 +28,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '嘎拉币不足，请先购买（INSUFFICIENT_COINS）' }, { status: 402 });
     }
     if (msg === 'USER_NOT_FOUND') return NextResponse.json({ error: '未登录' }, { status: 401 });
+    if (msg === 'USER_BANNED') return NextResponse.json({ error: '账号已封禁' }, { status: 403 });
     return NextResponse.json({ error: '扣费失败，请稍后重试' }, { status: 500 });
   }
 
