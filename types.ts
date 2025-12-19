@@ -66,6 +66,9 @@ export interface AccountUser {
   username: string;
   displayName: string;
   coins: number;
+  bannedAt?: string;
+  policyAcceptedAt?: string;
+  policyVersion?: number;
   createdAt: string;
 }
 
@@ -75,7 +78,7 @@ export type OrderStatus = 'created' | 'paid' | 'credited';
 
 export interface PaymentOrder {
   outTradeNo: string;
-  provider: 'zpay';
+  provider: 'zpay' | 'epay';
   payType: PayType;
   packId: CoinPackId;
   amount: string;

@@ -124,7 +124,15 @@ AUTH_SECRET=一个足够长的随机字符串
 # 可选：前端调用 API 的基准地址（默认为空，即与 Next 应用同源）
 # NEXT_PUBLIC_API_BASE=https://your.domain.com
 
-# 聚合支付（ZPAY / 易支付兼容，可选）
+# 聚合支付（易支付 V2 / RSA，推荐）
+EPAY_BASE_URL=https://pays.org.cn
+EPAY_PID=你的PID
+EPAY_MCH_PRIVATE_KEY=你的商户私钥（PEM 或纯Base64均可）
+EPAY_PLATFORM_PUBLIC_KEY=平台公钥（PEM 或纯Base64均可）
+# 可选：强制校验 create/query 响应签名（默认只校验 notify 回调签名）
+EPAY_REQUIRE_RESPONSE_SIGN=1
+
+# 旧版（ZPAY/易支付 V1 / MD5，兼容保留，可选）
 ZPAY_BASE_URL=https://zpayz.cn
 ZPAY_PID=你的PID
 ZPAY_PKEY=你的商户密钥

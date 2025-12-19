@@ -8,6 +8,7 @@ const withBase = (path: string) => `${API_BASE}${path}`;
 
 const requestJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const resp = await fetch(withBase(path), {
+    credentials: 'include',
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -74,6 +75,19 @@ export const authLogout = async (): Promise<void> => {
 export const walletBalance = async (): Promise<number> => {
   const data = await requestJson<{ coins: number }>('/api/wallet/balance', { method: 'GET' });
   return data.coins;
+};
+
+export const policyStatus = async (): Promise<{ accepted: boolean; policyVersion: number; acceptedAt: string | null }> => {
+  return await requestJson<{ accepted: boolean; policyVersion: number; acceptedAt: string | null }>('/api/policy/status', {
+    method: 'GET',
+  });
+};
+
+export const policyAccept = async (params: { version: number }): Promise<{ ok: true; acceptedAt: string; policyVersion: number }> => {
+  return await requestJson<{ ok: true; acceptedAt: string; policyVersion: number }>('/api/policy/accept', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
 };
 
 export const createPayOrder = async (params: {

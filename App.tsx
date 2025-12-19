@@ -550,6 +550,7 @@ const App: React.FC = () => {
           setShowPlaza(false);
           proceedToGame(save.script, save.assets, save.userProfile, save.currentNodeId, save.affinity);
         }}
+        isAdmin={accountUser?.username === 'admire'}
       />
 
       {accountUser && gameState === GameState.HOME && !showLoadMenu && !showPlaza && !showBuyCoins && (

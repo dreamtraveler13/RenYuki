@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateHeroine } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
-import { enforceNoCnPoliticalSensitive } from '@/lib/policy';
+import { enforceNoCnPoliticalSensitive, enforcePolicyAccepted } from '@/lib/policy';
 
 export async function POST(req: NextRequest) {
   const userId = getUserIdFromRequest(req);
@@ -9,6 +9,8 @@ export async function POST(req: NextRequest) {
 
   const { emotion, referenceImageBase64, userPhotoBase64, mimeType = 'image/jpeg' } = await req.json();
   if (!emotion) return NextResponse.json({ error: 'emotion is required' }, { status: 400 });
+  const acceptRes = await enforcePolicyAccepted({ userId });
+  if (acceptRes) return acceptRes;
   const policyRes = await enforceNoCnPoliticalSensitive({ userId, inputs: [emotion] });
   if (policyRes) return policyRes;
   try {

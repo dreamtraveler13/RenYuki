@@ -12,6 +12,10 @@ type UserRecord = {
   policyStrikes?: number;
   bannedAt?: string;
   banReason?: string;
+  policyAcceptedAt?: string;
+  policyVersion?: number;
+  policyAcceptedIp?: string;
+  policyAcceptedUa?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -22,6 +26,8 @@ export type PublicUser = {
   displayName: string;
   coins: number;
   bannedAt?: string;
+  policyAcceptedAt?: string;
+  policyVersion?: number;
   createdAt: string;
 };
 
@@ -54,6 +60,8 @@ const toPublicUser = (u: UserRecord): PublicUser => ({
   displayName: u.displayName,
   coins: u.coins,
   bannedAt: u.bannedAt,
+  policyAcceptedAt: u.policyAcceptedAt,
+  policyVersion: u.policyVersion,
   createdAt: u.createdAt,
 });
 
@@ -160,6 +168,35 @@ export const recordPoliticalSensitiveStrike = async (
 
     db.users[userId] = user;
     return { strikes, banned, bannedAt: user.bannedAt };
+  });
+};
+
+export const getUserPolicyAcceptance = async (
+  userId: string
+): Promise<{ acceptedAt?: string; version?: number; bannedAt?: string } | null> => {
+  const u = await getUserRecordById(userId);
+  if (!u) return null;
+  return { acceptedAt: u.policyAcceptedAt, version: u.policyVersion, bannedAt: u.bannedAt };
+};
+
+export const acceptUserPolicy = async (params: {
+  userId: string;
+  version: number;
+  ip?: string;
+  ua?: string;
+}): Promise<{ acceptedAt: string; version: number }> => {
+  return await updateDb((db) => {
+    const user = db.users[params.userId] as UserRecord | undefined;
+    if (!user) throw new Error('USER_NOT_FOUND');
+    if (user.bannedAt) throw new Error('USER_BANNED');
+    const now = new Date().toISOString();
+    user.policyAcceptedAt = now;
+    user.policyVersion = params.version;
+    user.policyAcceptedIp = params.ip;
+    user.policyAcceptedUa = params.ua;
+    user.updatedAt = now;
+    db.users[params.userId] = user;
+    return { acceptedAt: now, version: params.version };
   });
 };
 

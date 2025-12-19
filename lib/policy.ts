@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { clearSessionCookie } from '@/lib/authSession';
 import { detectPoliticalSensitiveContent } from '@/lib/moderation';
-import { recordPoliticalSensitiveStrike } from '@/lib/userStore';
+import { getUserPolicyAcceptance, recordPoliticalSensitiveStrike } from '@/lib/userStore';
+
+export const POLICY_VERSION = 1;
 
 export const enforceNoCnPoliticalSensitive = async (params: {
   userId: string;
@@ -29,3 +31,19 @@ export const enforceNoCnPoliticalSensitive = async (params: {
   );
 };
 
+export const enforcePolicyAccepted = async (params: { userId: string }) => {
+  const status = await getUserPolicyAcceptance(params.userId);
+  if (!status) return NextResponse.json({ error: '未登录' }, { status: 401 });
+  if (status.bannedAt) {
+    const res = NextResponse.json({ error: '账号已封禁' }, { status: 403 });
+    clearSessionCookie(res);
+    return res;
+  }
+  if (!status.acceptedAt || status.version !== POLICY_VERSION) {
+    return NextResponse.json(
+      { error: '请先阅读并同意免责声明后再生成。', policyRequired: true, policyVersion: POLICY_VERSION },
+      { status: 428 }
+    );
+  }
+  return null;
+};

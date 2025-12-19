@@ -8,6 +8,8 @@ const withBase = (path: string) => `${API_BASE}${path}`;
 
 const requestJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const resp = await fetch(withBase(path), {
+    credentials: 'include',
+    cache: 'no-store',
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -66,4 +68,11 @@ export const publishPlazaGame = async (save: SaveFile): Promise<PlazaGameSummary
     body: JSON.stringify({ save: sanitized }),
   });
   return data.game;
+};
+
+export const deletePlazaGame = async (id: string): Promise<{ ok: boolean }> => {
+  return await requestJson<{ ok: boolean }>('/api/plaza/delete', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  });
 };

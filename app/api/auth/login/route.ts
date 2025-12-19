@@ -19,6 +19,6 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: '账号或密码错误' }, { status: 401 });
 
   const res = NextResponse.json({ user });
-  setSessionCookie(res, user.id);
+  setSessionCookie(res, user.id, req);
   return res;
 }

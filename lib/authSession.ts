@@ -35,6 +35,15 @@ const sign = (data: string) => {
   return base64UrlEncode(mac);
 };
 
+const getCookieSecure = (req?: NextRequest) => {
+  if (typeof process.env.COOKIE_SECURE === 'string') return process.env.COOKIE_SECURE === '1';
+  const forwardedProto = req?.headers.get('x-forwarded-proto') || '';
+  if (forwardedProto) return forwardedProto.split(',')[0].trim().toLowerCase() === 'https';
+  const proto = req?.nextUrl?.protocol || '';
+  if (proto) return proto === 'https:';
+  return false;
+};
+
 export const createSessionToken = (userId: string) => {
   const header: JwtHeader = { alg: 'HS256', typ: 'JWT' };
   const nowSec = Math.floor(Date.now() / 1000);
@@ -91,24 +100,25 @@ export const getUserIdFromRequest = (req: NextRequest): string | null => {
   return payload?.sub || null;
 };
 
-export const setSessionCookie = (res: NextResponse, userId: string) => {
+export const setSessionCookie = (res: NextResponse, userId: string, req?: NextRequest) => {
   const token = createSessionToken(userId);
+  const secure = getCookieSecure(req);
   res.cookies.set(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure,
     path: '/',
     maxAge: SESSION_TTL_DAYS * 24 * 60 * 60,
   });
 };
 
-export const clearSessionCookie = (res: NextResponse) => {
+export const clearSessionCookie = (res: NextResponse, req?: NextRequest) => {
+  const secure = getCookieSecure(req);
   res.cookies.set(COOKIE_NAME, '', {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure,
     path: '/',
     maxAge: 0,
   });
 };
-

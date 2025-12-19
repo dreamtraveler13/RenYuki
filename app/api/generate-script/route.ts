@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateScript } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
 import { consumeUserCoins, refundUserCoins } from '@/lib/userStore';
-import { enforceNoCnPoliticalSensitive } from '@/lib/policy';
+import { enforceNoCnPoliticalSensitive, enforcePolicyAccepted } from '@/lib/policy';
 
 export async function POST(req: NextRequest) {
   const userId = getUserIdFromRequest(req);
@@ -10,6 +10,9 @@ export async function POST(req: NextRequest) {
 
   const { protagonistName, heroineName, plotDescription, maxMode } = await req.json();
   if (!protagonistName) return NextResponse.json({ error: 'protagonistName is required' }, { status: 400 });
+
+  const acceptRes = await enforcePolicyAccepted({ userId });
+  if (acceptRes) return acceptRes;
 
   const policyRes = await enforceNoCnPoliticalSensitive({
     userId,

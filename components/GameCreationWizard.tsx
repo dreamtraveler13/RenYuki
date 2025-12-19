@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CharacterImages, GameScript, GeneratedAssets, UserProfile } from '../types';
 import Button from './Button';
 import { fileToBase64, generateGameScript, generateImage, generateProtagonistSprite, generateHeroineSprite } from '../services/aiService';
-import { walletBalance } from '../services/accountService';
+import { policyAccept, policyStatus, walletBalance } from '../services/accountService';
 import { saveGame } from '../services/storageService';
 
 interface Props {
@@ -135,6 +135,295 @@ const fetchAudioToBase64 = async (url: string): Promise<string> => {
   }
 };
 
+const POLICY_TEXT = `用户须知与免责声明（强制阅读）
+
+1. 性质与用途
+- 本站提供 AI 生成内容的演示与娱乐服务，仅供个人学习、创作参考与娱乐体验。
+- 生成内容具有不确定性，可能包含错误或不当信息，不构成任何事实陈述或官方立场。
+
+2. 严格禁止内容（重点）
+你承诺绝不上传、输入、引导或生成（包括文字/图片/音频/链接/暗示性指令/变体拼写/谐音/截图/二维码等规避形式）：
+- 任何违反中华人民共和国法律法规及相关规定的内容；
+- 任何政治敏感信息、煽动性内容、谣言、极端化内容；
+- 色情、涉未成年人不当内容、暴力血腥、恐怖、赌博、毒品、诈骗、侵权盗版、违法交易、个人隐私泄露等；
+- 任何可能引发人身伤害、自残自杀、违法犯罪的指令或教程。
+
+3. 用户责任与承诺
+- 你对你上传/输入的全部内容及其合法性承担全部责任。
+- 你确认拥有上传素材的合法权利（著作权/肖像权/授权等），并保证不侵犯任何第三方合法权益。
+- 因你上传/输入/传播内容引发的争议、投诉、处罚或损失，由你自行承担并负责解决。
+
+4. 平台管理措施
+- 平台可能对输入与输出进行自动化审核、过滤、拦截与记录，以履行合规与安全义务。
+- 若你尝试生成禁止内容，平台将采取警告、限制功能、封禁账号等措施；你同意平台对此拥有最终处置权。
+
+5. 输出内容的使用限制
+- 你不得将本站生成内容用于违法用途、对外传播敏感信息、误导公众或造成社会影响的场景。
+- 你不得声称生成内容来自官方/权威机构，不得用于冒充、诽谤、造谣或侵害他人名誉。
+
+6. 免责与责任限制
+- 平台不保证生成内容的准确性、完整性、合法性或适用性；你应自行判断并承担使用后果。
+- 因不可抗力、网络故障、第三方服务故障、模型不稳定等导致的中断或损失，平台在法律允许范围内不承担责任。
+
+7. 同意与生效
+- 你点击“我已阅读并同意”即表示已完整阅读并理解本声明全部条款，并同意接受约束。
+- 若不同意，请停止使用并退出。`;
+
+const PolicyModal: React.FC<{
+  open: boolean;
+  version: number | null;
+  onDecline: () => void;
+  onAccepted: (version: number) => Promise<void>;
+}> = ({ open, version, onDecline, onAccepted }) => {
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [scrolledToBottom, setScrolledToBottom] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setScrolledToBottom(false);
+    setChecked(false);
+    setSubmitting(false);
+    setError(null);
+    if (boxRef.current) boxRef.current.scrollTop = 0;
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[25000] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 overlay-fade-in">
+      <div className="w-full max-w-2xl bg-white border border-black/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.18)] overflow-hidden modal-scale-in">
+        <div className="px-5 py-4 border-b border-black/10 flex items-center justify-between">
+          <div className="text-sm font-semibold text-gray-900">首次生成前请阅读并同意免责声明</div>
+          <button onClick={onDecline} className="text-xl leading-none text-gray-500 hover:text-gray-900 transition-colors">
+            ×
+          </button>
+        </div>
+        <div
+          ref={boxRef}
+          className="max-h-[60vh] overflow-y-auto px-5 py-4 text-sm leading-relaxed text-gray-800 whitespace-pre-wrap"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 6;
+            if (atBottom) setScrolledToBottom(true);
+          }}
+        >
+          {POLICY_TEXT}
+        </div>
+        <div className="px-5 py-4 border-t border-black/10 space-y-3">
+          <label className="flex items-start gap-2 text-xs text-gray-700 select-none">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(e) => setChecked(e.target.checked)}
+              className="mt-0.5"
+              disabled={!scrolledToBottom || submitting}
+            />
+            <span>
+              我已完整阅读并同意上述免责声明（版本 {version ?? '-'}），并承诺不生成任何违法/政治敏感等禁止内容。
+            </span>
+          </label>
+          {error && <div className="text-xs text-red-600">{error}</div>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Button
+              onClick={async () => {
+                if (!scrolledToBottom) {
+                  setError('请先滚动到最底部后再继续。');
+                  return;
+                }
+                if (!checked) {
+                  setError('请勾选“我已阅读并同意”。');
+                  return;
+                }
+                if (!version) {
+                  setError('免责声明版本获取失败，请刷新页面重试。');
+                  return;
+                }
+                setSubmitting(true);
+                setError(null);
+                try {
+                  await onAccepted(version);
+                } catch (e: any) {
+                  setError(e?.message || '提交失败，请稍后重试。');
+                  setSubmitting(false);
+                  return;
+                }
+                setSubmitting(false);
+              }}
+              className="w-full"
+            >
+              {submitting ? '提交中…' : '我已阅读并同意'}
+            </Button>
+            <Button onClick={onDecline} variant="secondary" className="w-full">
+              暂不同意（返回）
+            </Button>
+          </div>
+          <div className="text-[10px] text-gray-500">
+            为合规与安全，平台会记录同意时间与免责声明版本号，并可能记录必要的安全日志。
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+type TourStep = {
+  key: string;
+  title: string;
+  body: string;
+  getEl: () => HTMLElement | null;
+};
+
+const TOUR_SEEN_KEY = 'ry_wizard_tour_seen_v1';
+
+const OnboardingTour: React.FC<{
+  open: boolean;
+  steps: TourStep[];
+  stepIndex: number;
+  onStepIndex: (idx: number) => void;
+  onClose: (markSeen: boolean) => void;
+}> = ({ open, steps, stepIndex, onStepIndex, onClose }) => {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const el = steps[stepIndex]?.getEl?.() || null;
+    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  }, [open, stepIndex, steps]);
+
+  useEffect(() => {
+    if (!open) return;
+    let raf = 0;
+    let cancelled = false;
+    let last: DOMRect | null = null;
+
+    const tick = () => {
+      if (cancelled) return;
+      const el = steps[stepIndex]?.getEl?.() || null;
+      const next = el ? el.getBoundingClientRect() : null;
+      const changed =
+        (!last && !!next) ||
+        (!!last && !next) ||
+        (!!last &&
+          !!next &&
+          (Math.abs(last.top - next.top) > 0.5 ||
+            Math.abs(last.left - next.left) > 0.5 ||
+            Math.abs(last.width - next.width) > 0.5 ||
+            Math.abs(last.height - next.height) > 0.5));
+      if (changed) {
+        setRect(next);
+        last = next;
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(raf);
+    };
+  }, [open, stepIndex, steps]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleResize = () => setRect(steps[stepIndex]?.getEl?.()?.getBoundingClientRect?.() || null);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [open, stepIndex, steps]);
+
+  if (!open) return null;
+  const step = steps[stepIndex];
+  const progress = `${stepIndex + 1} / ${steps.length}`;
+
+  const safeRect = rect
+    ? {
+        top: Math.max(0, rect.top - 6),
+        left: Math.max(0, rect.left - 6),
+        width: rect.width + 12,
+        height: rect.height + 12,
+      }
+    : null;
+
+  const tooltipTop = safeRect
+    ? Math.min(window.innerHeight - 220, safeRect.top + safeRect.height + 14)
+    : Math.round(window.innerHeight / 2 - 120);
+  const tooltipLeft = safeRect
+    ? Math.min(window.innerWidth - 320, Math.max(12, safeRect.left))
+    : Math.round(window.innerWidth / 2 - 160);
+
+  return (
+    <div className="fixed inset-0 z-[26000] overlay-fade-in">
+      <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={() => onClose(false)} />
+      {safeRect && (
+        <div
+          className="absolute rounded-2xl border border-white/25 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] transition-all duration-300 ease-out"
+          style={{
+            top: safeRect.top,
+            left: safeRect.left,
+            width: safeRect.width,
+            height: safeRect.height,
+          }}
+        />
+      )}
+      <div
+        className="absolute w-[min(92vw,420px)] bg-white text-black rounded-3xl border border-black/10 shadow-[0_30px_90px_rgba(0,0,0,0.18)] p-5 modal-scale-in"
+        style={{ top: tooltipTop, left: tooltipLeft }}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-mono-tech text-gray-500">{progress}</div>
+            <div className="mt-1 text-base font-semibold text-gray-900">{step?.title || '引导'}</div>
+          </div>
+          <button
+            onClick={() => onClose(true)}
+            className="text-gray-500 hover:text-gray-900 transition-colors text-xl leading-none"
+            aria-label="关闭引导"
+          >
+            ×
+          </button>
+        </div>
+        <div className="mt-3 text-sm text-gray-700 leading-relaxed">{step?.body}</div>
+
+        <div className="mt-5 flex items-center justify-between gap-3">
+          <button
+            onClick={() => onClose(true)}
+            className="text-xs font-mono-tech text-gray-500 hover:text-gray-900 transition-colors"
+          >
+            跳过
+          </button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => onStepIndex(Math.max(0, stepIndex - 1))}
+              className="rounded-2xl border-black/10 px-4 py-2"
+              disabled={stepIndex === 0}
+            >
+              上一步
+            </Button>
+            <Button
+              onClick={() => {
+                if (stepIndex >= steps.length - 1) {
+                  onClose(true);
+                  return;
+                }
+                onStepIndex(stepIndex + 1);
+              }}
+              className="rounded-2xl border-black/10 px-4 py-2"
+            >
+              {stepIndex >= steps.length - 1 ? '完成' : '下一步'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpdated, onNeedCoins, onCancel }) => {
   const mountedRef = useRef(true);
   const [step, setStep] = useState<'upload' | 'generating'>('upload');
@@ -145,12 +434,68 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
   const [heroineName, setHeroineName] = useState('');
   const [plotDescription, setPlotDescription] = useState('');
   const [maxMode, setMaxMode] = useState(false);
+
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
+  const [policyVersion, setPolicyVersion] = useState<number | null>(null);
+  const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+  const [tourStepIndex, setTourStepIndex] = useState(0);
   
   const [protagonistPhoto, setProtagonistPhoto] = useState<string | undefined>(undefined);
   const [protagonistMimeType, setProtagonistMimeType] = useState<string>('image/jpeg');
 
   const [heroinePhoto, setHeroinePhoto] = useState<string | undefined>(undefined);
   const [heroineMimeType, setHeroineMimeType] = useState<string>('image/jpeg');
+
+  const plotRef = useRef<HTMLTextAreaElement | null>(null);
+  const protagonistNameRef = useRef<HTMLInputElement | null>(null);
+  const protagonistUploadRef = useRef<HTMLDivElement | null>(null);
+  const heroineNameRef = useRef<HTMLInputElement | null>(null);
+  const heroineUploadRef = useRef<HTMLDivElement | null>(null);
+  const maxModeRef = useRef<HTMLLabelElement | null>(null);
+  const startButtonWrapRef = useRef<HTMLDivElement | null>(null);
+
+  const tourSteps = useMemo<TourStep[]>(
+    () => [
+      {
+        key: 'plot',
+        title: '1) 场景设定',
+        body: '写一句你想要的开场设定即可。越具体越好（时间/地点/氛围/事件）。',
+        getEl: () => plotRef.current,
+      },
+      {
+        key: 'protagonist-name',
+        title: '2) 主角名字（必填）',
+        body: '只要填了主角名字，就能开始生成。',
+        getEl: () => protagonistNameRef.current,
+      },
+      {
+        key: 'protagonist-photo',
+        title: '3) 主角照片（可选）',
+        body: '可上传一张照片，让主角更像你；不上传也没关系。',
+        getEl: () => protagonistUploadRef.current,
+      },
+      {
+        key: 'heroine',
+        title: '4) 女主角（可选）',
+        body: '女主名字可留空（默认 Unit-01）。也可以上传照片来决定外观。',
+        getEl: () => heroineNameRef.current || heroineUploadRef.current,
+      },
+      {
+        key: 'max-mode',
+        title: '5) MAX MODE',
+        body: '开启后消耗 2 个嘎拉币（普通 1 个），立绘更多更精细。随时可切换。',
+        getEl: () => maxModeRef.current,
+      },
+      {
+        key: 'start',
+        title: '6) 开始生成',
+        body: '点击开始后会进入全屏生成界面，期间请保持页面打开。',
+        getEl: () => startButtonWrapRef.current,
+      },
+    ],
+    []
+  );
 
 
   const handleProtagonistUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -177,8 +522,37 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
     };
   }, []);
 
+  useEffect(() => {
+    if (step !== 'upload') return;
+    if (showPolicyModal) return;
+    if (errorMessage) return;
+    try {
+      const seen = window.localStorage.getItem(TOUR_SEEN_KEY);
+      if (!seen) {
+        setShowTour(true);
+        setTourStepIndex(0);
+      }
+    } catch {}
+  }, [step, showPolicyModal, errorMessage]);
+
   const handleStart = async () => {
     if (!userName) return;
+
+    if (!policyAccepted) {
+      try {
+        const status = await policyStatus();
+        setPolicyVersion(status.policyVersion);
+        if (!status.accepted) {
+          setShowPolicyModal(true);
+          return;
+        }
+        setPolicyAccepted(true);
+      } catch {
+        setPolicyVersion(1);
+        setShowPolicyModal(true);
+        return;
+      }
+    }
 
     if (mountedRef.current) {
       setErrorMessage('');
@@ -375,6 +749,20 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
     } catch (error) {
       console.error(error);
       const rawMessage = (error as Error)?.message || '生成失败，请稍后重试';
+      if (rawMessage.includes('请先阅读并同意免责声明')) {
+        try {
+          const status = await policyStatus();
+          setPolicyVersion(status.policyVersion);
+        } catch {
+          setPolicyVersion(1);
+        }
+        if (mountedRef.current) {
+          setShowPolicyModal(true);
+          setStep('upload');
+          setErrorMessage('');
+        }
+        return;
+      }
       const insufficientCoins = rawMessage.includes('INSUFFICIENT_COINS') || rawMessage.includes('嘎拉币不足');
       if (insufficientCoins) onNeedCoins?.();
       const message = insufficientCoins ? '嘎拉币不足，请先购买' : rawMessage;
@@ -387,91 +775,130 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
   };
 
   return (
-    <div className="w-full h-full flex items-center justify-center p-2 md:p-10">
-      <div className="w-full max-w-6xl tech-panel h-full md:h-[90vh] flex flex-col relative overflow-hidden bg-white">
+    <div className="fixed inset-0 z-[12000] bg-[#f7f7f8] text-gray-900">
+      <PolicyModal
+        open={showPolicyModal}
+        version={policyVersion}
+        onDecline={() => {
+          setShowPolicyModal(false);
+          onCancel();
+        }}
+        onAccepted={async (version) => {
+          await policyAccept({ version });
+          setPolicyAccepted(true);
+          setShowPolicyModal(false);
+          setTimeout(() => {
+            handleStart();
+          }, 0);
+        }}
+      />
+      <OnboardingTour
+        open={showTour}
+        steps={tourSteps}
+        stepIndex={tourStepIndex}
+        onStepIndex={setTourStepIndex}
+        onClose={(markSeen) => {
+          setShowTour(false);
+          if (markSeen) {
+            try {
+              window.localStorage.setItem(TOUR_SEEN_KEY, '1');
+            } catch {}
+          }
+        }}
+      />
+      <div className="w-full h-full flex flex-col relative overflow-hidden bg-white">
         
         {/* Header Bar */}
-        <div className="h-12 md:h-16 border-b border-black flex items-center justify-between px-4 md:px-8 bg-gray-50 shrink-0">
-            <h2 className="text-sm md:text-xl font-bold tracking-widest uppercase">创建新嘎拉</h2>
-            <div className="text-[10px] md:text-xs font-mono-tech text-gray-500">编号：#001</div>
+        <div className="h-14 md:h-16 border-b border-black/10 flex items-center justify-between px-4 md:px-8 bg-white shrink-0">
+            <h2 className="text-base md:text-lg font-semibold tracking-tight text-gray-900">创建新嘎拉</h2>
+            <div className="text-[10px] md:text-xs font-mono-tech text-gray-400">CREATE</div>
         </div>
 
         {step === 'upload' && (
-          <div className="flex-1 overflow-y-auto p-4 md:p-16 animate-glitch">
-            {errorMessage && (
-              <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-3 rounded flex items-start gap-3">
-                <div className="font-mono-tech text-[11px] uppercase">错误</div>
-                <div className="flex-1 text-sm leading-snug">
-                  生成失败：{errorMessage}。请检查网络、环境变量或稍后重试。
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div
+              className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 pb-28 md:p-16 md:pb-16"
+              style={
+                {
+                  WebkitOverflowScrolling: 'touch',
+                  touchAction: 'pan-y',
+                } as React.CSSProperties
+              }
+            >
+              {errorMessage && (
+                <div className="mb-5 bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl flex items-start gap-3">
+                  <div className="font-mono-tech text-[11px] uppercase">错误</div>
+                  <div className="flex-1 text-sm leading-snug">
+                    生成失败：{errorMessage}
+                  </div>
+                  <button
+                    onClick={() => setErrorMessage('')}
+                    className="text-[10px] font-bold uppercase tracking-wide text-red-600 hover:text-red-800"
+                  >
+                    关闭
+                  </button>
                 </div>
-                <button
-                  onClick={() => setErrorMessage('')}
-                  className="text-[10px] font-bold uppercase tracking-wide text-red-600 hover:text-red-800"
-                >
-                  关闭
-                </button>
-              </div>
-            )}
-            
-            {/* Top Section: Narrative Prompt */}
-            <div className="mb-6 md:mb-12">
-               <div className="border-l-2 border-black pl-3 md:pl-4 mb-2 md:mb-4">
-                  <h3 className="text-lg md:text-2xl font-black uppercase mb-0 md:mb-1">场景设定</h3>
-                  <p className="text-[10px] md:text-xs text-gray-500 font-mono-tech">用于生成剧情的设定</p>
-               </div>
-	               <div>
-	                  <textarea 
-	                    value={plotDescription}
-	                    onChange={(e) => setPlotDescription(e.target.value)}
-	                    className="w-full tech-input py-1 md:py-3 text-sm md:text-lg font-medium h-16 md:h-24 resize-none"
-	                    placeholder="例如：在屋顶一起吃午饭。"
-	                  />
-	               </div>
-	               <div className="mt-3 flex items-center justify-between gap-3">
-	                  <label className="flex items-center gap-2 select-none cursor-pointer">
-	                    <input
-	                      type="checkbox"
-	                      checked={maxMode}
-	                      onChange={(e) => setMaxMode(e.target.checked)}
-	                      className="h-4 w-4 accent-black"
-	                    />
-	                    <span className="text-xs md:text-sm font-bold tracking-widest uppercase">MAX MODE</span>
-	                  </label>
-	                  <div className="text-[10px] md:text-xs text-gray-500 font-mono-tech">
-	                    MAX MODE 消耗 2 个嘎拉币（普通 1 个），立绘数量和质量会显著提升。
-	                  </div>
-	               </div>
-	            </div>
+              )}
 
-            {/* Forced 2-column layout to match desktop */}
-            <div className="grid grid-cols-2 gap-8 md:gap-16">
+                {/* Top Section: Narrative Prompt */}
+                <div className="mb-6 md:mb-12">
+                  <div className="border-l-2 border-black pl-3 md:pl-4 mb-2 md:mb-4">
+                    <h3 className="text-lg md:text-2xl font-black uppercase mb-0 md:mb-1">场景设定</h3>
+                  <p className="text-[10px] md:text-xs text-gray-500 font-mono-tech">用于生成剧情的设定</p>
+                </div>
+
+                <div>
+                  <textarea
+                    ref={plotRef}
+                    value={plotDescription}
+                    onChange={(e) => setPlotDescription(e.target.value)}
+                    className="w-full bg-gray-50 border border-black/10 rounded-2xl px-4 py-3 text-sm md:text-lg font-medium h-28 md:h-28 resize-none focus:outline-none focus:border-black/25 focus:bg-white transition-colors"
+                    placeholder="例如：在屋顶一起吃午饭。"
+                  />
+                </div>
+
+                <div className="mt-3 md:mt-4">
+                  <div className="text-[10px] md:text-xs text-gray-500 font-mono-tech leading-relaxed">
+                    提示：MAX MODE 开关在底部，可随时开启（消耗 2 个嘎拉币）。
+                  </div>
+                </div>
+                </div>
+
+                {/* Mobile-first stacked layout, desktop keeps 2 columns */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-16">
               
               {/* Left Column: Protagonist */}
-              <div className="space-y-4 md:space-y-8">
+              <div className="space-y-4 md:space-y-8 bg-white md:bg-transparent rounded-2xl md:rounded-none border border-black/10 md:border-0 p-4 md:p-0">
                   <div className="border-l-2 border-black pl-3 md:pl-4">
                     <h3 className="text-lg md:text-2xl font-black uppercase mb-0 md:mb-1">主角</h3>
+                    <p className="text-[10px] md:text-xs text-gray-500 font-mono-tech mt-1">填名字即可生成（照片可选）</p>
                   </div>
                   
                   <div className="group">
                     <label className="block text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 md:mb-2 text-gray-400">名字</label>
                     <input 
+                      ref={protagonistNameRef}
                       type="text" 
                       value={userName}
                       onChange={(e) => setUserName(e.target.value)}
-                      className="w-full tech-input py-1 md:py-3 text-base md:text-xl font-medium"
+                      className="w-full bg-gray-50 border border-black/10 rounded-2xl px-4 py-3 text-base md:text-xl font-medium focus:outline-none focus:border-black/25 focus:bg-white transition-colors"
                       placeholder="请输入主角名字"
                     />
                   </div>
 
                   <div>
                     <label className="block text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 md:mb-2 text-gray-400">照片（可选）</label>
-                    <div className="border border-dashed border-gray-400 hover:border-black p-2 md:p-4 transition-all cursor-pointer relative h-20 md:h-32 flex items-center justify-center bg-gray-50 hover:bg-white group">
+                    <div
+                      ref={protagonistUploadRef}
+                      className="border border-dashed border-gray-400 hover:border-black p-3 md:p-4 transition-all cursor-pointer relative h-28 md:h-32 flex items-center justify-center bg-gray-50 hover:bg-white group rounded-2xl"
+                    >
                       <input type="file" accept="image/*" onChange={handleProtagonistUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                       {protagonistPhoto ? (
                         <img src={`data:${protagonistMimeType};base64,${protagonistPhoto}`} className="h-full object-contain" alt="预览" />
                       ) : (
                         <div className="text-center group-hover:scale-105 transition-transform">
-                          <span className="text-[10px] md:text-xs font-mono-tech text-gray-400">上传图片</span>
+                          <div className="text-xs font-semibold text-gray-900">上传图片</div>
+                          <div className="text-[10px] font-mono-tech text-gray-400 mt-1">更像你自己（可跳过）</div>
                         </div>
                       )}
                     </div>
@@ -482,31 +909,37 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
               </div>
 
               {/* Right Column: Heroine */}
-              <div className="space-y-4 md:space-y-8">
+              <div className="space-y-4 md:space-y-8 bg-white md:bg-transparent rounded-2xl md:rounded-none border border-black/10 md:border-0 p-4 md:p-0">
                   <div className="border-l-2 border-black pl-3 md:pl-4">
                     <h3 className="text-lg md:text-2xl font-black uppercase mb-0 md:mb-1">女主角</h3>
+                    <p className="text-[10px] md:text-xs text-gray-500 font-mono-tech mt-1">可留空，默认 Unit-01</p>
                   </div>
 
                    <div className="group">
                      <label className="block text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 md:mb-2 text-gray-400">名字</label>
                      <input 
+                       ref={heroineNameRef}
                        type="text" 
                        value={heroineName}
                        onChange={(e) => setHeroineName(e.target.value)}
-                       className="w-full tech-input py-1 md:py-3 text-base md:text-xl font-medium"
+                       className="w-full bg-gray-50 border border-black/10 rounded-2xl px-4 py-3 text-base md:text-xl font-medium focus:outline-none focus:border-black/25 focus:bg-white transition-colors"
                        placeholder="请输入女主名字"
                      />
                    </div>
 
                    <div>
                     <label className="block text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 md:mb-2 text-gray-400">照片（可选）</label>
-                    <div className="border border-dashed border-gray-400 hover:border-black p-2 md:p-4 transition-all cursor-pointer relative h-20 md:h-32 flex items-center justify-center bg-gray-50 hover:bg-white group">
+                    <div
+                      ref={heroineUploadRef}
+                      className="border border-dashed border-gray-400 hover:border-black p-3 md:p-4 transition-all cursor-pointer relative h-28 md:h-32 flex items-center justify-center bg-gray-50 hover:bg-white group rounded-2xl"
+                    >
                       <input type="file" accept="image/*" onChange={handleHeroineUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                       {heroinePhoto ? (
                         <img src={`data:${heroineMimeType};base64,${heroinePhoto}`} className="h-full object-contain" alt="预览" />
                       ) : (
                         <div className="text-center group-hover:scale-105 transition-transform">
-                          <span className="text-[10px] md:text-xs font-mono-tech text-gray-400">上传图片</span>
+                          <div className="text-xs font-semibold text-gray-900">上传图片</div>
+                          <div className="text-[10px] font-mono-tech text-gray-400 mt-1">决定女主外观（可跳过）</div>
                         </div>
                       )}
                     </div>
@@ -514,47 +947,88 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
                       请勿上传违法、色情、暴力或侵犯他人肖像权的照片，后果自负。
                     </div>
                   </div>
+              </div>
             </div>
           </div>
 
-            <div className="mt-8 md:mt-16 flex flex-col gap-3 md:gap-4 border-t border-gray-200 pt-4 md:pt-8 pb-4">
-               <div className="text-[10px] md:text-xs text-gray-500 font-mono-tech">
-                 生成需等待本页完成，请勿关闭。
-               </div>
-               <div className="text-[9px] text-gray-300 font-mono-tech">
-                  免责声明：生成内容仅供娱乐，上传素材请遵守法律法规，责任自负。
-               </div>
-               <div className="flex flex-col md:flex-row md:items-center md:justify-end gap-3 md:gap-6">
-                 <button onClick={onCancel} className="text-gray-400 hover:text-black font-bold uppercase tracking-widest text-xs md:text-sm">取消</button>
-                 <Button 
-                   onClick={handleStart} 
-                   disabled={!userName}
-                   className="w-full md:w-40"
-                 >
-                   {!userName ? "请先填写主角名字" : maxMode ? "开始生成（2 嘎拉币）" : "开始生成（1 嘎拉币）"}
-                 </Button>
-               </div>
+          {/* Sticky action bar (mobile), normal footer on desktop */}
+          <div className="shrink-0 border-t border-gray-200 bg-white/95 backdrop-blur px-4 md:px-16 py-3 md:py-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <label
+                  ref={maxModeRef}
+                  className={`flex items-center gap-2 select-none cursor-pointer rounded-2xl border px-3 py-2 transition-all duration-200 ${
+                    maxMode ? 'border-black/30 bg-black text-white shadow-sm' : 'border-black/10 bg-gray-50 text-black'
+                  }`}
+                  title={maxMode ? 'MAX MODE：2 嘎拉币，立绘更多更精细' : '普通模式：1 嘎拉币'}
+                >
+                  <input
+                    type="checkbox"
+                    checked={maxMode}
+                    onChange={(e) => setMaxMode(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <span className="text-xs font-semibold tracking-widest uppercase">MAX MODE</span>
+                  <span className="ml-1 text-[10px] font-mono-tech opacity-90 whitespace-nowrap">
+                    {maxMode ? '2 币·更精细' : '1 币'}
+                  </span>
+                </label>
+                <div className="hidden md:block text-xs text-gray-500 font-mono-tech">
+                  生成需等待本页完成，请勿关闭。
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 md:gap-6">
+                <button
+                  onClick={onCancel}
+                  className="text-gray-400 hover:text-black font-bold uppercase tracking-widest text-xs md:text-sm transition-colors"
+                >
+                  取消
+                </button>
+                <div ref={startButtonWrapRef} className="flex items-center gap-2">
+                  <Button
+                    onClick={handleStart}
+                    disabled={!userName}
+                    className={`w-full md:w-44 rounded-2xl border-black/20 transition-transform ${userName ? 'active:scale-[0.99]' : ''}`}
+                  >
+                    {!userName ? '请先填写主角名字' : maxMode ? '开始生成（2 嘎拉币）' : '开始生成（1 嘎拉币）'}
+                  </Button>
+                </div>
+              </div>
             </div>
+
+            <div
+              className={`md:hidden mt-2 text-[10px] font-mono-tech leading-relaxed transition-all ${
+                maxMode ? 'text-gray-900' : 'text-gray-500'
+              }`}
+            >
+              {maxMode ? 'MAX MODE 已开启：消耗 2 个嘎拉币（立绘更多更精细）。' : 'MAX MODE 关闭：消耗 1 个嘎拉币。'}
+            </div>
+            <div className="md:hidden mt-1 text-[10px] text-gray-500 font-mono-tech">
+              点击生成即表示你已同意免责声明，并承诺不生成任何违法/政治敏感内容。
+            </div>
+          </div>
           </div>
         )}
 
         {step === 'generating' && (
-          <div className="flex-1 flex flex-col items-center justify-center space-y-4 md:space-y-8 bg-black text-white p-4">
-             <div className="w-full max-w-md space-y-2">
-                <div className="flex justify-between font-mono-tech text-[10px] md:text-xs text-gray-400">
-                   <span>处理中</span>
-                    <span className="animate-pulse">进行中…</span>
-                 </div>
-                 <div className="h-1 w-full bg-gray-800 overflow-hidden">
-                    <div className="h-full bg-white animate-progress w-full origin-left" style={{ animation: 'glitch-load 2s infinite' }}></div>
-                 </div>
-                 <h3 className="text-xl md:text-4xl font-black uppercase mt-4 animate-pulse text-center">{loadingStatus}</h3>
-                 <p className="text-center text-[10px] md:text-xs text-gray-400 mt-2 font-mono-tech tracking-widest uppercase">
-                    预计需要几分钟，请勿退出页面或熄屏
-                 </p>
+          <div className="fixed inset-0 z-[24000] bg-[#f7f7f8] text-gray-900 flex items-center justify-center p-6 overlay-fade-in">
+            <div className="w-full max-w-md bg-white border border-black/10 rounded-3xl shadow-[0_30px_80px_rgba(0,0,0,0.12)] p-6 modal-scale-in">
+              <div className="flex items-center justify-center">
+                <div className="w-12 h-12 rounded-full border-2 border-black/10 border-t-black animate-spin" />
+              </div>
+              <div className="mt-5 text-base font-semibold text-center text-gray-900">
+                {loadingStatus || '生成中…'}
+              </div>
+              <div className="mt-2 text-xs text-center text-gray-500 font-mono-tech">
+                预计需要几分钟，请保持页面打开
+              </div>
+              <div className="mt-5 h-1 w-full bg-black/5 overflow-hidden rounded-full">
+                <div className="h-full w-1/2 bg-black/70 animate-pulse" />
+              </div>
             </div>
-         </div>
-       )}
+          </div>
+        )}
 
       </div>
     </div>

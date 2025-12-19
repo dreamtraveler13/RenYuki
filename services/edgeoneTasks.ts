@@ -9,6 +9,7 @@ type StatusResponse = { status: 'pending' | 'running' | 'done' | 'error'; error?
 const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const res = await fetch(withBase(path), {
     cache: 'no-store',
+    credentials: 'include',
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -36,6 +37,7 @@ export const getEdgeTaskStatus = (taskId: string) =>
 export const downloadEdgeTaskResult = async (taskId: string): Promise<Blob> => {
   const res = await fetch(withBase(`/api/tasks/download?task_id=${encodeURIComponent(taskId)}`), {
     cache: 'no-store',
+    credentials: 'include',
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

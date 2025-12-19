@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateBackgroundImage } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
-import { enforceNoCnPoliticalSensitive } from '@/lib/policy';
+import { enforceNoCnPoliticalSensitive, enforcePolicyAccepted } from '@/lib/policy';
 
 export async function POST(req: NextRequest) {
   const userId = getUserIdFromRequest(req);
@@ -9,6 +9,8 @@ export async function POST(req: NextRequest) {
 
   const { prompt } = await req.json();
   if (!prompt) return NextResponse.json({ error: 'prompt is required' }, { status: 400 });
+  const acceptRes = await enforcePolicyAccepted({ userId });
+  if (acceptRes) return acceptRes;
   const policyRes = await enforceNoCnPoliticalSensitive({ userId, inputs: [prompt] });
   if (policyRes) return policyRes;
   try {

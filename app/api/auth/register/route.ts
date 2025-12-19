@@ -27,10 +27,9 @@ export async function POST(req: NextRequest) {
   try {
     const user = await createUser({ username, password, displayName });
     const res = NextResponse.json({ user });
-    setSessionCookie(res, user.id);
+    setSessionCookie(res, user.id, req);
     return res;
   } catch (err) {
     return NextResponse.json({ error: toErrorMessage(err) }, { status: 400 });
   }
 }
-

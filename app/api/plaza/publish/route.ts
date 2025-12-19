@@ -20,8 +20,8 @@ export async function POST(req: NextRequest) {
   };
 
   const rawSize = Buffer.byteLength(JSON.stringify(sanitized), 'utf8');
-  const maxBytes = 30 * 1024 * 1024;
-  if (rawSize > maxBytes) return NextResponse.json({ error: '存档太大，无法发布（>30MB）' }, { status: 413 });
+  const maxBytes = 100 * 1024 * 1024;
+  if (rawSize > maxBytes) return NextResponse.json({ error: '存档太大，无法发布（>100MB）' }, { status: 413 });
 
   try {
     const summary = await publishPlazaGame(userId, sanitized);

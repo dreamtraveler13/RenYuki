@@ -2,29 +2,50 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import type { PlazaGameSummary, SaveFile } from '../types';
-import { getPlazaGame, listPlazaGames } from '../services/plazaService';
+import { deletePlazaGame, getPlazaGame, listPlazaGames } from '../services/plazaService';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onPlaySave: (save: SaveFile) => void;
+  isAdmin?: boolean;
 }
 
-const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave }) => {
+const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = false }) => {
   const [games, setGames] = useState<PlazaGameSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
+  const refresh = () => {
     setErrorMessage(null);
     setLoading(true);
     listPlazaGames()
       .then((items) => setGames(items))
       .catch((err: any) => setErrorMessage(err?.message || '加载失败'))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    refresh();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onFocus = () => refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const filtered = useMemo(() => {
@@ -51,6 +72,23 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave }) => {
     }
   };
 
+  const remove = async (id: string) => {
+    if (!isAdmin) return;
+    if (deletingId || loadingId) return;
+    const ok = window.confirm('确定要从嘎拉广场删除这个游戏吗？此操作不可撤销。');
+    if (!ok) return;
+    setDeletingId(id);
+    setErrorMessage(null);
+    try {
+      await deletePlazaGame(id);
+      setGames((prev) => prev.filter((g) => g.id !== id));
+    } catch (err: any) {
+      setErrorMessage(err?.message || '删除失败');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   if (!open) return null;
 
   return (
@@ -60,13 +98,22 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave }) => {
           <div className="text-lg lg:text-2xl font-black uppercase">嘎拉广场</div>
           <div className="hidden lg:block text-xs text-gray-500 mt-1">任何人都可以打开并游玩已发布的嘎拉</div>
         </div>
-        <button
-          onClick={onClose}
-          className="text-2xl lg:text-4xl hover:rotate-90 transition-transform"
-          aria-label="关闭"
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={refresh}
+            className="text-xs font-semibold px-3 py-2 rounded-xl border border-black/10 bg-white hover:bg-gray-50 transition-colors"
+            disabled={loading}
+          >
+            {loading ? '刷新中…' : '刷新'}
+          </button>
+          <button
+            onClick={onClose}
+            className="text-2xl lg:text-4xl hover:rotate-90 transition-transform"
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-10">
@@ -90,6 +137,7 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave }) => {
           {filtered.map((g) => {
             const cover = g.coverBase64 ? `data:image/png;base64,${g.coverBase64}` : '';
             const busy = loadingId === g.id;
+            const deleting = deletingId === g.id;
             return (
               <div key={g.id} className="rounded-2xl border border-gray-200 overflow-hidden bg-white shadow-sm">
                 <div className="relative h-44 bg-gray-100">
@@ -116,15 +164,31 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave }) => {
                   <div className="text-xs text-gray-600">
                     同步率 <span className="font-semibold text-gray-900">{g.affinity}%</span>
                   </div>
-                  <button
-                    onClick={() => play(g.id)}
-                    disabled={!!loadingId}
-                    className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
-                      busy ? 'bg-gray-200 text-gray-500' : 'bg-gray-900 text-white hover:bg-black'
-                    }`}
-                  >
-                    {busy ? '加载中…' : '游玩'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {isAdmin && (
+                      <button
+                        onClick={() => remove(g.id)}
+                        disabled={!!loadingId || !!deletingId}
+                        className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors border ${
+                          deleting
+                            ? 'bg-red-50 text-red-600 border-red-200'
+                            : 'bg-white text-red-600 border-red-200 hover:bg-red-50'
+                        }`}
+                        title="管理员删除"
+                      >
+                        {deleting ? '删除中…' : '删除'}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => play(g.id)}
+                      disabled={!!loadingId || !!deletingId}
+                      className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
+                        busy ? 'bg-gray-200 text-gray-500' : 'bg-gray-900 text-white hover:bg-black'
+                      }`}
+                    >
+                      {busy ? '加载中…' : '游玩'}
+                    </button>
+                  </div>
                 </div>
               </div>
             );

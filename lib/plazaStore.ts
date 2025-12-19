@@ -119,3 +119,15 @@ export const incrementPlazaPlay = async (id: string) => {
     await writePlazaRecord(rec);
   });
 };
+
+export const deletePlazaGame = async (id: string) => {
+  await withWriteLock(async () => {
+    await ensurePlazaDir();
+    try {
+      await fs.unlink(getPlazaPath(id));
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') return;
+      throw err;
+    }
+  });
+};

@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const record = await getUserRecordById(userId);
   if (record?.bannedAt) {
     const res = NextResponse.json({ error: '账号已封禁' }, { status: 403 });
-    clearSessionCookie(res);
+    clearSessionCookie(res, req);
     return res;
   }
   const user = await getUserById(userId);

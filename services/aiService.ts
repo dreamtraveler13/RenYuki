@@ -33,6 +33,7 @@ const withRetry = async <T,>(label: string, fn: () => Promise<T>, tries = MAX_RE
 
 const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const resp = await fetch(withBase(path), {
+    credentials: 'include',
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -87,6 +88,7 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
 const downloadImageUrlToBase64 = async (url: string): Promise<string> => {
   return await withRetry('download-image', async () => {
     const resp = await fetch(withBase('/api/download-image'), {
+      credentials: 'include',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
