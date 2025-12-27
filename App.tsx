@@ -1,16 +1,27 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AccountUser, GameState, GameScript, GeneratedAssets, SaveFile, UserProfile } from './types';
+import {
+  AccountUser,
+  GameGenerationJobStatus,
+  GameGenerationResult,
+  GameState,
+  GameScript,
+  GeneratedAssets,
+  SaveFile,
+  UserProfile,
+} from './types';
 import BuyCoinsModal from './components/BuyCoinsModal';
 import GalaPlazaModal from './components/GalaPlazaModal';
 import GameCreationWizard from './components/GameCreationWizard';
 import VisualNovelPlayer from './components/VisualNovelPlayer';
 import LoginScreen from './components/LoginScreen';
 import Button from './components/Button';
-import { getSaveList, deleteSave } from './services/storageService';
+import { deleteSave, getSaveList, saveGame } from './services/storageService';
 import { authLogout, authMe } from './services/accountService';
 import { publishPlazaGame } from './services/plazaService';
+import { getGameGenerationJob } from './services/aiService';
+import { stripAssetBase64Map } from './services/imageCutout';
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -18,6 +29,7 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 const App: React.FC = () => {
+  const PENDING_JOB_KEY = 'renyuki:pending-generation-job';
   const [gameState, setGameState] = useState<GameState>(GameState.HOME);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -45,6 +57,11 @@ const App: React.FC = () => {
   const [initialAffinity, setInitialAffinity] = useState<number | undefined>(undefined);
 
   const [galleryHeroines, setGalleryHeroines] = useState<{name: string, image: string, id: number}[]>([]);
+  const [pendingGenerationJobId, setPendingGenerationJobId] = useState<string | null>(null);
+  const [pendingGenerationStatus, setPendingGenerationStatus] = useState<GameGenerationJobStatus | null>(null);
+  const [pendingGenerationError, setPendingGenerationError] = useState<string | null>(null);
+  const [clientPostProcessing, setClientPostProcessing] = useState(false);
+  const pollInFlightRef = useRef(false);
   const coins = accountUser?.coins ?? 0;
 
   const iosPromptOverlay = showIosPrompt ? (
@@ -124,6 +141,25 @@ const App: React.FC = () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!authChecked || !isLoggedIn) return;
+    try {
+      const jobId = window.localStorage.getItem(PENDING_JOB_KEY);
+      if (jobId && typeof jobId === 'string' && jobId.trim().length > 0) {
+        setPendingGenerationJobId(jobId);
+        setPendingGenerationError(null);
+        setClientPostProcessing(false);
+        setShowLoadMenu(true);
+        void (async () => {
+          try {
+            const saves = await getSaveList();
+            setSaveList(saves);
+          } catch {}
+        })();
+      }
+    } catch {}
+  }, [authChecked, isLoggedIn]);
 
   useEffect(() => {
     if (!publishMessage) return;
@@ -384,11 +420,14 @@ const App: React.FC = () => {
     setIsLoggedIn(false);
     setAuthChecked(true);
     setShowLoadMenu(false);
+    try {
+      window.localStorage.removeItem(PENDING_JOB_KEY);
+    } catch {}
+    setPendingGenerationJobId(null);
+    setPendingGenerationStatus(null);
+    setPendingGenerationError(null);
+    setClientPostProcessing(false);
     resetGame();
-  };
-
-  const handleGameReady = (script: GameScript, assets: GeneratedAssets, user: UserProfile) => {
-    proceedToGame(script, assets, user);
   };
 
   const resetGame = () => {
@@ -422,12 +461,119 @@ const App: React.FC = () => {
   };
 
   const openLoadMenu = async () => {
+    setShowLoadMenu(true);
     try {
       const saves = await getSaveList();
       setSaveList(saves);
-      setShowLoadMenu(true);
     } catch (e) { console.error(e); }
   };
+
+  const handleGenerationStarted = async (jobId: string) => {
+    setPendingGenerationJobId(jobId);
+    setPendingGenerationStatus(null);
+    setPendingGenerationError(null);
+    setClientPostProcessing(false);
+    try {
+      window.localStorage.setItem(PENDING_JOB_KEY, jobId);
+    } catch {}
+    setShowPlaza(false);
+    setShowBuyCoins(false);
+    setGameState(GameState.HOME);
+    await openLoadMenu();
+  };
+
+  const finalizeAndStartGame = async (payload: GameGenerationResult) => {
+    setClientPostProcessing(true);
+    setPendingGenerationStatus((prev) =>
+      prev
+        ? { ...prev, progress: Math.max(prev.progress, 95), message: '正在处理立绘透明背景（本地）' }
+        : prev
+    );
+
+    const [protagonist, heroine] = await Promise.all([
+      stripAssetBase64Map(payload.assets.protagonist),
+      stripAssetBase64Map(payload.assets.heroine),
+    ]);
+
+    const finalAssets: GeneratedAssets = {
+      ...payload.assets,
+      protagonist,
+      heroine,
+      music: payload.assets.music || {},
+    };
+
+    try {
+      await saveGame(payload.script, finalAssets, payload.userProfile, payload.initialNodeId, payload.initialAffinity);
+      const saves = await getSaveList();
+      setSaveList(saves);
+    } catch {}
+
+    setShowLoadMenu(false);
+    proceedToGame(payload.script, finalAssets, payload.userProfile, payload.initialNodeId, payload.initialAffinity);
+  };
+
+  useEffect(() => {
+    if (!authChecked || !isLoggedIn) return;
+    if (!pendingGenerationJobId) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      if (pollInFlightRef.current) return;
+      pollInFlightRef.current = true;
+      try {
+        const status = await getGameGenerationJob(pendingGenerationJobId);
+        if (cancelled) return;
+        setPendingGenerationStatus(status);
+        setPendingGenerationError(status.jobError || null);
+
+        if (status.state === 'failed') {
+          try {
+            window.localStorage.removeItem(PENDING_JOB_KEY);
+          } catch {}
+          setPendingGenerationJobId(null);
+          setClientPostProcessing(false);
+          return;
+        }
+
+        if (status.state === 'completed') {
+          const full = await getGameGenerationJob(pendingGenerationJobId, { includeResult: true, includeDebug: true });
+          if (cancelled) return;
+          const result = full.result;
+          if (!result) {
+            setPendingGenerationError('生成完成，但未拿到结果，请刷新重试');
+            return;
+          }
+          setPendingGenerationStatus(full);
+          try {
+            window.localStorage.removeItem(PENDING_JOB_KEY);
+          } catch {}
+          setPendingGenerationJobId(null);
+          await finalizeAndStartGame(result);
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        const msg = err?.message || '生成状态查询失败';
+        setPendingGenerationError(msg);
+        if (msg.includes('任务不存在或已过期')) {
+          try {
+            window.localStorage.removeItem(PENDING_JOB_KEY);
+          } catch {}
+          setPendingGenerationJobId(null);
+          setClientPostProcessing(false);
+        }
+      } finally {
+        pollInFlightRef.current = false;
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(poll, 1200);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [authChecked, isLoggedIn, pendingGenerationJobId]);
 
   const loadSaveFile = (save: SaveFile) => {
     setShowLoadMenu(false);
@@ -669,6 +815,32 @@ const App: React.FC = () => {
                  
                  <div className="flex-1 overflow-y-auto p-4 lg:p-10 bg-gray-100">
                      <div className="flex flex-col gap-6 lg:gap-10">
+                         {pendingGenerationJobId && (
+                           <div className="bg-white border border-black/10 rounded-2xl shadow-sm p-4 lg:p-6">
+                             <div className="flex items-start justify-between gap-4">
+                               <div className="min-w-0">
+                                 <div className="text-xs font-mono-tech text-gray-500">正在生成新的嘎拉（服务器）</div>
+                                 <div className="text-sm lg:text-base font-semibold text-gray-900 mt-1">
+                                   {clientPostProcessing
+                                     ? '正在处理立绘透明背景（本地）'
+                                     : pendingGenerationStatus?.message || '排队中…'}
+                                 </div>
+                               </div>
+                               <div className="text-xs font-mono-tech text-gray-600">
+                                 {Math.max(0, Math.min(100, pendingGenerationStatus?.progress ?? 0))}%
+                               </div>
+                             </div>
+                             <div className="mt-3 h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                               <div
+                                 className="h-full bg-black transition-all"
+                                 style={{ width: `${Math.max(0, Math.min(100, pendingGenerationStatus?.progress ?? 0))}%` }}
+                               />
+                             </div>
+                             {pendingGenerationError && (
+                               <div className="mt-3 text-xs font-mono-tech text-red-600">生成失败：{pendingGenerationError}</div>
+                             )}
+                           </div>
+                         )}
                          {saveList.length === 0 ? (
                              <div className="col-span-full text-center py-20 font-mono-tech text-gray-400">记忆库为空</div>
                          ) : (
@@ -729,11 +901,11 @@ const App: React.FC = () => {
 
         {gameState === GameState.CREATING && (
           <GameCreationWizard 
-            onGameReady={handleGameReady}
             onCoinsUpdated={(newCoins) =>
               setAccountUser((prev) => (prev ? { ...prev, coins: newCoins } : prev))
             }
             onNeedCoins={() => setShowBuyCoins(true)}
+            onGenerationStarted={handleGenerationStarted}
             onCancel={resetGame}
           />
         )}

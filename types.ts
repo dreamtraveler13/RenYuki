@@ -139,3 +139,37 @@ export interface SaveFile {
   // Optional memory cover image (sweet couple photo) to show in load screen
   memoryCoverBase64?: string;
 }
+
+export interface GameGenerationInput {
+  protagonistName: string;
+  heroineName?: string;
+  plotDescription: string;
+  maxMode?: boolean;
+  protagonistPhotoBase64?: string;
+  protagonistMimeType?: string;
+  heroinePhotoBase64?: string;
+  heroineMimeType?: string;
+}
+
+export type GameGenerationJobState = 'queued' | 'running' | 'completed' | 'failed';
+
+export interface GameGenerationResult {
+  script: GameScript;
+  assets: GeneratedAssets;
+  userProfile: UserProfile;
+  initialNodeId: string;
+  initialAffinity: number;
+}
+
+export interface GameGenerationJobStatus {
+  jobId: string;
+  state: GameGenerationJobState;
+  progress: number;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  jobError?: string;
+  result?: GameGenerationResult;
+  debug?: unknown[];
+}

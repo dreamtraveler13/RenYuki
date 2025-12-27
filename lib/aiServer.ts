@@ -807,6 +807,10 @@ export const inferBackgroundScenes = async (plotDescription: string): Promise<Ba
 
     RULES (STRICT):
     - Output 1 to 3 scenes ONLY. Do NOT exceed 3.
+    - Focus on the PHYSICAL ROUTE the characters will pass through, not camera angles or sub-areas of the same place.
+      Example: "散步去小卖部" => ["校园", "小卖部"] (NOT "校园", "校园另一处", "小卖部").
+    - Do NOT split a single location into multiple variants like "校园/校园另一处/校园小路".
+    - Scenes must be distinct physical locations.
     - Each scene must have:
       - "name": short Chinese scene name, e.g. "校园", "小卖部", "天台", "走廊".
       - "prompt": a background prompt describing location + time-of-day + atmosphere, WITHOUT characters, WITHOUT text/UI, WITHOUT watermark.

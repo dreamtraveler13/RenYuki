@@ -1,137 +1,16 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CharacterImages, GameScript, GeneratedAssets, UserProfile } from '../types';
 import Button from './Button';
-import { fileToBase64, generateGameScript, generateImage, generateProtagonistSprite, generateHeroineSprite, inferScenes } from '../services/aiService';
+import { fileToBase64, startGameGeneration } from '../services/aiService';
 import { policyAccept, policyStatus, walletBalance } from '../services/accountService';
-import { saveGame } from '../services/storageService';
 
 interface Props {
-  onGameReady: (script: GameScript, assets: GeneratedAssets, user: UserProfile) => void;
   onCoinsUpdated?: (coins: number) => void;
   onNeedCoins?: () => void;
+  onGenerationStarted: (jobId: string) => void;
   onCancel: () => void;
 }
-
-// BGM Library (Mapped to files in "public/music/")
-// Ensure files song1.mp3 to song7.mp3 exist in your "public/music/" folder.
-const AUDIO_LIBRARY: Record<string, string> = {
-  bgm_bossa: "/music/song1.mp3",   // 轻松爵士 (Bossa Nova)
-  bgm_playful: "/music/song2.mp3", // 俏皮管弦
-  bgm_piano: "/music/song3.mp3",   // 温暖钢琴
-  bgm_night: "/music/song4.mp3",   // 深夜慢摇
-  bgm_sad: "/music/song5.mp3",     // 悲伤独奏
-  bgm_dream: "/music/song6.mp3",   // 梦幻八音盒
-  bgm_morning: "/music/song7.mp3"  // 优雅晨曲
-};
-
-// 简易扣图（基于画布洪水填充 + 羽化）
-const removeBackground = async (base64Data: string): Promise<string> => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const trimmed = typeof base64Data === 'string' ? base64Data.trim() : '';
-    const src = trimmed.startsWith('data:')
-      ? trimmed
-      : trimmed.startsWith('/9j')
-        ? `data:image/jpeg;base64,${trimmed}`
-        : `data:image/png;base64,${trimmed}`;
-    img.src = src;
-    img.crossOrigin = 'Anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve(base64Data);
-        return;
-      }
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-      const width = canvas.width;
-      const height = canvas.height;
-
-      const visited = new Uint8Array(width * height);
-      const stack: number[] = [];
-
-      const START_THRESHOLD = 240;
-      const FILL_THRESHOLD = 240;
-      const getBrightness = (idx: number) => (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
-      const isBackgroundCandidate = (idx: number) => {
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        return r > FILL_THRESHOLD && g > FILL_THRESHOLD && b > FILL_THRESHOLD;
-      };
-
-      const corners = [0, width - 1, (height - 1) * width, width * height - 1];
-      for (const idx of corners) {
-        if (getBrightness(idx * 4) > START_THRESHOLD) {
-          stack.push(idx);
-          visited[idx] = 1;
-        }
-      }
-
-      while (stack.length > 0) {
-        const idx = stack.pop()!;
-        const x = idx % width;
-        const y = Math.floor(idx / width);
-        const neighbors = [];
-        if (x > 0) neighbors.push(idx - 1);
-        if (x < width - 1) neighbors.push(idx + 1);
-        if (y > 0) neighbors.push(idx - width);
-        if (y < height - 1) neighbors.push(idx + width);
-        for (const nIdx of neighbors) {
-          if (visited[nIdx] === 0) {
-            const pixelIdx = nIdx * 4;
-            if (isBackgroundCandidate(pixelIdx)) {
-              visited[nIdx] = 1;
-              stack.push(nIdx);
-            } else {
-              visited[nIdx] = 2;
-            }
-          }
-        }
-      }
-
-      for (let i = 0; i < width * height; i++) {
-        const pixelIdx = i * 4;
-        if (visited[i] === 1) {
-          data[pixelIdx + 3] = 0;
-        }
-      }
-
-      ctx.putImageData(imageData, 0, 0);
-      const newBase64 = canvas.toDataURL('image/png').split(',')[1];
-      resolve(newBase64);
-    };
-    img.onerror = () => resolve(base64Data);
-  });
-};
-
-const fetchAudioToBase64 = async (url: string): Promise<string> => {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-        console.warn(`Audio file missing: ${url} (Status: ${response.status})`);
-        return "";
-    }
-    const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        resolve(result.split(',')[1]);
-      };
-      reader.readAsDataURL(blob);
-    });
-  } catch (e) {
-    console.warn(`Audio fetch failed for ${url}`, e);
-    return "";
-  }
-};
 
 const POLICY_TEXT = `用户须知与免责声明（强制阅读）
 
@@ -422,7 +301,7 @@ const OnboardingTour: React.FC<{
   );
 };
 
-const GameCreationWizard: React.FC<Props> = ({ onGameReady, onCoinsUpdated, onNeedCoins, onCancel }) => {
+const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGenerationStarted, onCancel }) => {
   const mountedRef = useRef(true);
   const [step, setStep] = useState<'upload' | 'generating'>('upload');
   const [loadingStatus, setLoadingStatus] = useState('');
@@ -488,7 +367,7 @@ const GameCreationWizard: React.FC<Props> = ({ onGameReady, onCoinsUpdated, onNe
       {
         key: 'start',
         title: '6) 开始生成',
-        body: '点击开始后会进入全屏生成界面，期间请保持页面打开。',
+        body: '点击开始后会跳转到“读取记忆”，显示服务器生成进度。',
         getEl: () => startButtonWrapRef.current,
       },
     ],
@@ -555,222 +434,28 @@ const GameCreationWizard: React.FC<Props> = ({ onGameReady, onCoinsUpdated, onNe
     if (mountedRef.current) {
       setErrorMessage('');
       setStep('generating');
+      setLoadingStatus('正在创建生成任务…');
     }
 
     try {
-      const targetHeroine = heroineName.trim() || "Unit-01";
+      const targetHeroine = heroineName.trim() || 'Unit-01';
+      const { jobId } = await startGameGeneration({
+        protagonistName: userName,
+        heroineName: targetHeroine,
+        plotDescription,
+        maxMode,
+        protagonistPhotoBase64: protagonistPhoto,
+        protagonistMimeType,
+        heroinePhotoBase64: heroinePhoto,
+        heroineMimeType,
+      });
 
-      // 1) Start sprites + scene inference in parallel
-      const scenePromise = (async () => {
-        if (mountedRef.current) setLoadingStatus('正在推测场景');
-        const scenes = await inferScenes(plotDescription || '');
-        const cleaned = Array.isArray(scenes)
-          ? scenes
-              .filter((s) => s && typeof s === 'object')
-              .map((s) => ({
-                name: typeof (s as any).name === 'string' ? (s as any).name.trim() : '',
-                prompt: typeof (s as any).prompt === 'string' ? (s as any).prompt.trim() : '',
-              }))
-              .filter((s) => s.name.length > 0)
-              .slice(0, 3)
-          : [];
-
-        const seen = new Set<string>();
-        const deduped = cleaned.filter((s) => {
-          if (seen.has(s.name)) return false;
-          seen.add(s.name);
-          return true;
-        });
-        const out = deduped.map((s) => ({ name: s.name, prompt: s.prompt || s.name }));
-        if (out.length === 0) {
-          throw new Error('场景推测失败，请换个更具体的场景描述重试');
-        }
-        return out;
-      })();
-
-      const scriptPromise = (async () => {
-        const scenes = await scenePromise;
-        if (mountedRef.current) setLoadingStatus('正在生成剧本');
-        return await generateGameScript(
-          userName,
-          targetHeroine,
-          plotDescription,
-          maxMode,
-          scenes.length > 0 ? scenes : undefined
-        );
-      })();
-
-      const backgroundsPromise = (async () => {
-        const scenes = await scenePromise;
-        const backgrounds: Record<string, string> = {};
-        let bgDone = 0;
-        if (mountedRef.current) setLoadingStatus(`正在生成背景（${bgDone}/${scenes.length}）`);
-
-        const results = await Promise.all(
-          scenes.map(async (scene) => {
-            try {
-              const img = await generateImage(scene.prompt || scene.name);
-              return { key: scene.name, img };
-            } finally {
-              bgDone += 1;
-              if (mountedRef.current) setLoadingStatus(`正在生成背景（${bgDone}/${scenes.length}）`);
-            }
-          })
-        );
-
-        results.forEach((r) => {
-          if (r?.key && r?.img) backgrounds[r.key] = r.img;
-        });
-
-        return backgrounds;
-      })();
-
-      const protagonistPromise: Promise<CharacterImages> = (async () => {
-        if (mountedRef.current) setLoadingStatus('正在生成主角立绘');
-
-        if (protagonistPhoto) {
-          if (maxMode) {
-            const [normal, happy, surprised, angry] = await Promise.all([
-              generateProtagonistSprite('confident smile', protagonistPhoto, undefined, protagonistMimeType),
-              generateProtagonistSprite('bright happy smile', protagonistPhoto, undefined, protagonistMimeType),
-              generateProtagonistSprite('surprised, jaw drop, shock', protagonistPhoto, undefined, protagonistMimeType),
-              generateProtagonistSprite('annoyed, angry, slightly frowning', protagonistPhoto, undefined, protagonistMimeType),
-            ]);
-            return { normal, happy, surprised, angry, shy: happy };
-          }
-
-          const [normal, surprised] = await Promise.all([
-            generateProtagonistSprite('confident smile', protagonistPhoto, undefined, protagonistMimeType),
-            generateProtagonistSprite('surprised, jaw drop, shock', protagonistPhoto, undefined, protagonistMimeType),
-          ]);
-          return { normal, happy: normal, surprised, angry: surprised, shy: normal };
-        }
-
-        const normal = await generateProtagonistSprite('confident smile');
-        if (maxMode) {
-          const [happy, surprised, angry] = await Promise.all([
-            generateProtagonistSprite('bright happy smile', undefined, normal),
-            generateProtagonistSprite('surprised, jaw drop, shock', undefined, normal),
-            generateProtagonistSprite('annoyed, angry, slightly frowning', undefined, normal),
-          ]);
-          return { normal, happy, surprised, angry, shy: happy };
-        }
-
-        const surprised = await generateProtagonistSprite('surprised, jaw drop, shock', undefined, normal);
-        return { normal, happy: normal, surprised, angry: surprised, shy: normal };
-      })();
-
-      const heroinePromise: Promise<CharacterImages> = (async () => {
-        if (mountedRef.current) setLoadingStatus(`正在生成女主立绘（${targetHeroine}）`);
-
-        if (heroinePhoto) {
-          if (maxMode) {
-            const [normal, happy, shy, surprised, angry, sad] = await Promise.all([
-              generateHeroineSprite('gentle smile', undefined, heroinePhoto, heroineMimeType),
-              generateHeroineSprite('laughing happily', undefined, heroinePhoto, heroineMimeType),
-              generateHeroineSprite('blushing shy', undefined, heroinePhoto, heroineMimeType),
-              generateHeroineSprite('surprised, wide eyes, slight gasp', undefined, heroinePhoto, heroineMimeType),
-              generateHeroineSprite('pouting, angry, cheeks slightly puffed', undefined, heroinePhoto, heroineMimeType),
-              generateHeroineSprite('sad, watery eyes, holding back tears', undefined, heroinePhoto, heroineMimeType),
-            ]);
-            return { normal, happy, shy, surprised, angry, sad };
-          }
-
-          const [normal, happy, shy] = await Promise.all([
-            generateHeroineSprite('gentle smile', undefined, heroinePhoto, heroineMimeType),
-            generateHeroineSprite('laughing happily', undefined, heroinePhoto, heroineMimeType),
-            generateHeroineSprite('blushing shy', undefined, heroinePhoto, heroineMimeType),
-          ]);
-          return { normal, happy, shy, surprised: normal, angry: normal };
-        }
-
-        const normal = await generateHeroineSprite('gentle smile');
-        if (mountedRef.current) setLoadingStatus('正在生成女主其他表情');
-
-        if (maxMode) {
-          const [happy, shy, surprised, angry, sad] = await Promise.all([
-            generateHeroineSprite('laughing happily', normal, undefined),
-            generateHeroineSprite('blushing shy', normal, undefined),
-            generateHeroineSprite('surprised, wide eyes, slight gasp', normal, undefined),
-            generateHeroineSprite('pouting, angry, cheeks slightly puffed', normal, undefined),
-            generateHeroineSprite('sad, watery eyes, holding back tears', normal, undefined),
-          ]);
-          return { normal, happy, shy, surprised, angry, sad };
-        }
-
-        const [happy, shy] = await Promise.all([
-          generateHeroineSprite('laughing happily', normal, undefined),
-          generateHeroineSprite('blushing shy', normal, undefined),
-        ]);
-        return { normal, happy, shy, surprised: normal, angry: normal };
-      })();
-
-      const script = await scriptPromise;
       try {
         const coins = await walletBalance();
         onCoinsUpdated?.(coins);
       } catch {}
 
-      // 3) Wait sprites, then cutout (dedupe), while backgrounds are still generating
-      const [protagonistAssetsRaw, heroineAssetsRaw] = await Promise.all([protagonistPromise, heroinePromise]);
-
-      if (mountedRef.current) setLoadingStatus('正在处理立绘透明背景');
-      const stripAssets = async <T extends Record<string, any>>(assetsObj: T): Promise<T> => {
-        const entries = Object.entries(assetsObj).filter(([, v]) => typeof v === 'string' && v.trim().length > 0) as Array<[string, string]>;
-        const unique = Array.from(new Set(entries.map(([, v]) => v)));
-        const cleanedPairs = await Promise.all(unique.map(async (img) => [img, await removeBackground(img)] as const));
-        const map = new Map(cleanedPairs);
-        const out: Record<string, any> = { ...assetsObj };
-        entries.forEach(([k, v]) => {
-          out[k] = map.get(v) || v;
-        });
-        return out as T;
-      };
-
-      const [protagonistAssets, heroineAssets, backgrounds] = await Promise.all([
-        stripAssets(protagonistAssetsRaw),
-        stripAssets(heroineAssetsRaw),
-        backgroundsPromise,
-      ]);
-
-      // 5. Audio (BGM)
-      if (mountedRef.current) setLoadingStatus('正在加载背景音乐');
-      const musicData: Record<string, string> = {};
-
-      // 5.1 Fetch BGM
-      if (mountedRef.current) setLoadingStatus('正在读取背景音乐文件');
-      await Promise.all(
-        Object.entries(AUDIO_LIBRARY).map(async ([key, url]) => {
-          try {
-            const audioBase64 = await fetchAudioToBase64(url);
-            if (audioBase64) musicData[key] = audioBase64;
-          } catch (e) {
-            console.warn(`Failed to load music: ${key}`);
-          }
-        })
-      );
-
-      const finalUserProfile: UserProfile = {
-          name: userName,
-          avatarBase64: protagonistPhoto || String(protagonistAssets.normal || '') 
-      };
-
-      const finalAssets: GeneratedAssets = {
-        protagonist: protagonistAssets,
-        heroine: heroineAssets,
-        backgrounds,
-        music: musicData
-      };
-
-      if (mountedRef.current) setLoadingStatus('正在保存存档');
-      try {
-        await saveGame(script, finalAssets, finalUserProfile, script.startNodeId, 50);
-      } catch (saveError) {
-        console.warn("Auto-save failed:", saveError);
-      }
-
-      onGameReady(script, finalAssets, finalUserProfile);
-
+      onGenerationStarted(jobId);
     } catch (error) {
       console.error(error);
       const rawMessage = (error as Error)?.message || '生成失败，请稍后重试';

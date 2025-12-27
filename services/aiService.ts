@@ -1,6 +1,6 @@
 'use client';
 
-import { GameScript, SaveFile } from '../types';
+import { GameGenerationInput, GameGenerationJobStatus, GameScript, SaveFile } from '../types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -238,6 +238,27 @@ export const generateImage = async (prompt: string): Promise<string> => {
     });
     if (!data?.imageUrl) throw new Error('No imageUrl returned');
     return await downloadImageUrlToBase64(data.imageUrl);
+  });
+};
+
+export const startGameGeneration = async (input: GameGenerationInput): Promise<{ jobId: string }> => {
+  return await withRetry('generate-game', async () => {
+    return await requestJson<{ jobId: string }>('/api/generate-game', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  });
+};
+
+export const getGameGenerationJob = async (
+  jobId: string,
+  opts?: { includeResult?: boolean; includeDebug?: boolean }
+): Promise<GameGenerationJobStatus> => {
+  const params = new URLSearchParams({ jobId });
+  if (opts?.includeResult) params.set('includeResult', '1');
+  if (opts?.includeDebug) params.set('includeDebug', '1');
+  return await withRetry('generate-game-status', async () => {
+    return await requestJson<GameGenerationJobStatus>(`/api/generate-game?${params.toString()}`);
   });
 };
 
