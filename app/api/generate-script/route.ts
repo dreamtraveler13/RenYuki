@@ -54,7 +54,10 @@ export async function POST(req: NextRequest) {
         scenes.length > 0 ? { backgroundScenes: scenes } : undefined
       )
     );
-    return NextResponse.json(debug ? { ...result, debug } : result);
+    const titleFromUser =
+      typeof plotDescription === 'string' && plotDescription.trim().length > 0 ? plotDescription.trim() : result.title;
+    const payload = { ...result, title: titleFromUser };
+    return NextResponse.json(debug ? { ...payload, debug } : payload);
   } catch (err: any) {
     console.error('generate-script failed', err);
     try {

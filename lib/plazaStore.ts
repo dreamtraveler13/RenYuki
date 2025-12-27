@@ -1,6 +1,35 @@
 import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 import type { PlazaGame, PlazaGameSummary, SaveFile } from '@/types';
 import { getDb, jsonParse, jsonStringify } from './db';
+
+const getPlazaStorageDir = () => {
+  const dir = process.env.PLAZA_STORAGE_DIR || process.env.ZEABUR_VOLUME_PATH || '';
+  return dir && dir.trim().length > 0 ? dir.trim() : path.join(process.cwd(), 'plaza_storage');
+};
+
+const writePlazaSaveFile = async (id: string, save: SaveFile): Promise<string> => {
+  const dir = getPlazaStorageDir();
+  await fs.mkdir(dir, { recursive: true });
+  const filename = `${id}.json`;
+  const filePath = path.join(dir, filename);
+  await fs.writeFile(filePath, JSON.stringify(save), 'utf8');
+  return filename; // store relative filename in DB
+};
+
+const readPlazaSaveFile = async (savePath: string): Promise<SaveFile> => {
+  const dir = getPlazaStorageDir();
+  const filePath = path.isAbsolute(savePath) ? savePath : path.join(dir, savePath);
+  const raw = await fs.readFile(filePath, 'utf8');
+  return JSON.parse(raw) as SaveFile;
+};
+
+const deletePlazaSaveFile = async (savePath: string) => {
+  const dir = getPlazaStorageDir();
+  const filePath = path.isAbsolute(savePath) ? savePath : path.join(dir, savePath);
+  await fs.unlink(filePath);
+};
 
 const defaultSave: SaveFile = {
   id: 0,
@@ -66,7 +95,18 @@ export const getPlazaGame = async (id: string): Promise<PlazaGame | null> => {
   const db = await getDb();
   const { rows } = await db.query('SELECT * FROM plaza_games WHERE id = $1', [id]);
   if (!rows[0]) return null;
-  const save = jsonParse<SaveFile>(rows[0].save_json, defaultSave);
+  const savePath = typeof rows[0].save_path === 'string' ? rows[0].save_path : '';
+  let save: SaveFile;
+  if (savePath.trim().length > 0) {
+    try {
+      save = await readPlazaSaveFile(savePath.trim());
+    } catch (err) {
+      console.error('read plaza save file failed', err);
+      save = jsonParse<SaveFile>(rows[0].save_json, defaultSave);
+    }
+  } else {
+    save = jsonParse<SaveFile>(rows[0].save_json, defaultSave);
+  }
   return { ...rowToSummary(rows[0]), save };
 };
 
@@ -75,28 +115,37 @@ export const publishPlazaGame = async (userId: string, save: SaveFile): Promise<
   const createdAt = new Date().toISOString();
   const summary = toSummaryFromSave({ id, createdAt, plays: 0, reportCount: 0, save });
   const db = await getDb();
+  const savePath = await writePlazaSaveFile(id, save);
 
-  await db.query(
-    `
-      INSERT INTO plaza_games (
-        id, created_at, uploader_user_id, title, date, heroine_name,
-        affinity, cover_base64, plays, report_count, save_json
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
-    `,
-    [
-      id,
-      createdAt,
-      userId,
-      summary.title,
-      summary.date,
-      summary.heroineName,
-      summary.affinity,
-      summary.coverBase64,
-      summary.plays,
-      summary.reportCount || 0,
-      jsonStringify(save),
-    ]
-  );
+  try {
+    await db.query(
+      `
+        INSERT INTO plaza_games (
+          id, created_at, uploader_user_id, title, date, heroine_name,
+          affinity, cover_base64, plays, report_count, save_path, save_json
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+      `,
+      [
+        id,
+        createdAt,
+        userId,
+        summary.title,
+        summary.date,
+        summary.heroineName,
+        summary.affinity,
+        summary.coverBase64,
+        summary.plays,
+        summary.reportCount || 0,
+        savePath,
+        jsonStringify({}), // keep compatibility with existing NOT NULL schema
+      ]
+    );
+  } catch (err) {
+    try {
+      await deletePlazaSaveFile(savePath);
+    } catch {}
+    throw err;
+  }
 
   return summary;
 };
@@ -108,5 +157,14 @@ export const incrementPlazaPlay = async (id: string) => {
 
 export const deletePlazaGame = async (id: string) => {
   const db = await getDb();
+  try {
+    const { rows } = await db.query('SELECT save_path FROM plaza_games WHERE id = $1', [id]);
+    const savePath = typeof rows?.[0]?.save_path === 'string' ? rows[0].save_path.trim() : '';
+    if (savePath) {
+      await deletePlazaSaveFile(savePath);
+    }
+  } catch (err) {
+    console.warn('delete plaza save file failed', err);
+  }
   await db.query('DELETE FROM plaza_games WHERE id = $1', [id]);
 };

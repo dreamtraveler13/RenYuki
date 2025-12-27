@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS plaza_games (
   plays integer NOT NULL DEFAULT 0,
   report_count integer NOT NULL DEFAULT 0,
   last_reported_at timestamptz,
+  save_path text,
   save_json jsonb NOT NULL
 );
 

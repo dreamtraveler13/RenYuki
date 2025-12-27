@@ -3,6 +3,8 @@ import { getUserIdFromRequest } from '@/lib/authSession';
 import { isGodUserId, requireAdminTokenIfConfigured } from '@/lib/admin';
 import { deletePlazaGame } from '@/lib/plazaStore';
 
+export const runtime = 'nodejs';
+
 const isValidId = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 
 export async function POST(req: NextRequest) {
@@ -32,4 +34,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err?.message || 'delete failed' }, { status: 500 });
   }
 }
-

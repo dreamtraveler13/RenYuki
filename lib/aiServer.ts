@@ -1,20 +1,8 @@
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
 import { AsyncLocalStorage } from 'async_hooks';
 import { GameScript, SpeakerType, StoryNode } from '@/types';
 
 const FALLBACK_BACKGROUND = 'General anime scene';
-
-const AUDIO_LIBRARY: Record<string, string> = {
-  bgm_bossa: './public/music/song1.mp3',
-  bgm_playful: './public/music/song2.mp3',
-  bgm_piano: './public/music/song3.mp3',
-  bgm_night: './public/music/song4.mp3',
-  bgm_sad: './public/music/song5.mp3',
-  bgm_dream: './public/music/song6.mp3',
-  bgm_morning: './public/music/song7.mp3',
-};
 
 const LINGYAAI_BASE_URL = process.env.LINGYAAI_BASE_URL || 'https://api.lingyaai.cn';
 const LINGYAAI_CHAT_MODEL = process.env.LINGYAAI_CHAT_MODEL || 'gemini-3-flash-preview';
@@ -462,26 +450,6 @@ const lingyaImagesGeneration = async (params: { prompt: string; image?: string[]
     { tries: 3, baseDelayMs: 800, maxDelayMs: 6500, label: 'lingyaImagesGeneration' }
   );
 
-const fetchImageUrlAsBase64 = async (url: string) => {
-  return withRetry(
-    async () => {
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), LINGYAAI_IMAGE_DOWNLOAD_TIMEOUT_MS).unref?.();
-      try {
-        const resp = await fetch(url, { cache: 'no-store', signal: ac.signal });
-        if (!resp.ok) throw new Error(`Image download failed: ${resp.status}`);
-        const buffer = Buffer.from(await resp.arrayBuffer());
-        return buffer.toString('base64');
-      } catch (e: any) {
-        throw new Error(e?.message || 'fetch failed');
-      } finally {
-        clearTimeout(timer as any);
-      }
-    },
-    { tries: 3, baseDelayMs: 500, maxDelayMs: 4000, label: 'fetchImageUrlAsBase64' }
-  );
-};
-
 const extractJSON = (text: string): any => {
   if (!text || typeof text !== 'string') throw new Error('Empty response from model');
   const tryParse = (raw: string) => {
@@ -866,86 +834,6 @@ export const inferBackgroundScenes = async (plotDescription: string): Promise<Ba
   const scenes = sanitizeBackgroundScenes(raw);
   if (scenes.length === 0) throw new Error('场景推测失败：模型未返回可用场景');
   return scenes;
-};
-
-export const generateScriptRaw = async (
-  protagonistName: string,
-  heroineName?: string,
-  plotDescription?: string
-): Promise<string> => {
-  const targetHeroine = heroineName ? heroineName.trim() : 'Yuki';
-  const customPlot = plotDescription ? `Specific Situation: "${plotDescription}"` : 'A fateful encounter at school.';
-  const prompt = `
-    You are the LEAD SCENARIO WRITER for a Japanese school romance visual novel (Galgame), like Senren * Banka (千恋＊万花).
-    MISSION: Create a sweet, immersive, otaku-friendly school romance scene (classic galgame vibes).
-    MODE: Episodic. Generate the FIRST EPISODE only (we will continue later via player input).
-    GENRE: School Romance / Slice of Life / Youth / Moe-ge.
-    TARGET AUDIENCE: Otaku who love sweet, doki-doki, and comedic moments.
-    THEME: Youth campus love story. Keep it wholesome and PG-13.
-
-    CHARACTERS:
-    1. ${protagonistName} (Protagonist): A high school student.
-    2. ${targetHeroine} (Heroine): The main love interest. Deeply cares about ${protagonistName}.
-
-    PLOT: ${customPlot}
-
-    DIALOGUE STYLE (VERY IMPORTANT):
-    - The Heroine must sound like a shy anime girl in a real galgame: tsun/shy beats, flustered, sweet, cute.
-    - Mix cute teasing + embarrassment + small romantic tension; avoid western drama.
-    - Example (style reference, do NOT copy verbatim):
-      - CN: 「诶？！才、才没有在等你呢……只是刚好路过！」/「你、你别盯着我看啦……」
-      - JP: 「えっ？！べ、別に待ってたわけじゃないんだから……ただ通りかかっただけ！」/「も、もう……見ないでよ……」
-
-    VISUAL & AUDIO DIRECTION:
-    - BACKGROUNDS (SCENE CONTROL, VERY IMPORTANT):
-      - HARD LIMIT: Use AT MOST 3 unique backgrounds for the entire story and REUSE them heavily.
-      - DEFAULT: Keep the same background for many consecutive nodes; do NOT change backgrounds frequently.
-      - SCENE SWITCH RULE: ONLY change background when BOTH the Protagonist and the Heroine clearly move to a different physical location (for example: classroom → rooftop, school → home).
-      - DO NOT change background just for mood, angle, or small actions. Treat location changes as rare, important events.
-      - Overall goal: As few distinct scenes as possible while keeping the story coherent.
-      - Prefer Japanese school settings: classroom, corridor, courtyard, club room, rooftop, school gate.
-    - BGM: Select appropriate 'bgm' from: 'bgm_bossa', 'bgm_playful', 'bgm_piano', 'bgm_night', 'bgm_sad', 'bgm_dream', 'bgm_morning'.
-
-    WRITING GUIDELINES (STRICT):
-    - LENGTH: The story MUST be substantial.
-    - DIALOGUE: Heroine must sound like a classic Anime Girl.
-    - PACING: Slow burn.
-
-    TECHNICAL REQUIREMENTS:
-    - Nodes: Generate between 8 and 12 STORY NODES. Do NOT exceed 12 nodes.
-    - Language: textCN (Chinese), textJP (Japanese for Heroine).
-    - OUTPUT FORMAT: RAW JSON ONLY.
-      - The ENTIRE response must be a single valid JSON object, no markdown, no code fences, no comments, no extra text.
-      - The JSON must strictly follow the schema, no trailing commas and correct value types.
-      - IMPORTANT: Use the TOP-LEVEL KEY "nodes" (NOT "scene").
-      - IMPORTANT: Every node MUST include a unique string "id".
-      - IMPORTANT: The LAST node MUST be a user input decision point:
-        - Set "nodeType" to "user_choice"
-        - The LAST node MUST be spoken by the Heroine and MUST be a question in classic galgame style
-        - Add "choicePromptCN" to ask the player to click “新建”, type their option, and start continuation (galgame UI)
-        - Do NOT provide predefined choices.
-
-    SCHEMA CONSTRAINTS:
-    - speaker: "Heroine" or "Protagonist".
-    - emotion: "normal", "happy", "surprised", "angry", "shy", "sad".
-
-    EMOTION CONSISTENCY (IMPORTANT):
-    - Emotion selects the sprite. Do NOT switch emotions frequently.
-    - Keep the same emotion for several consecutive nodes unless the mood clearly changes.
-    - Default to "normal"; use other emotions only for key beats.
-  `;
-
-  const response = await lingyaChatCompletion({
-    messages: buildChatMessages(prompt),
-    temperature: 0.6,
-    max_tokens: 8192,
-  });
-
-  const rawText = getChatContent(response);
-  if (!rawText || rawText.trim().length === 0) {
-    throw new Error(`AI Generation Blocked${formatChatBlockedDetails(response)}`);
-  }
-  return rawText;
 };
 
 export const generateScript = async (
@@ -1700,46 +1588,3 @@ export const generateBackgroundImage = async (prompt: string) =>
     ],
     '16:9'
   );
-
-export const generateMemoryCoverImage = async (params: {
-  heroineName: string;
-  protagonistName: string;
-  scenePrompt?: string;
-  affinity?: number;
-}) => {
-  const { heroineName, protagonistName, scenePrompt, affinity } = params;
-  const affectionHint =
-    typeof affinity === 'number'
-      ? `Their relationship score is ${affinity} out of 100, so they should look very close and sweet.`
-      : '';
-
-  const scene =
-    scenePrompt && scenePrompt.trim().length > 0
-      ? scenePrompt.trim()
-      : 'a romantic Japanese high school setting, soft evening light, gentle atmosphere';
-
-  const text = `
-    High quality anime illustration, 16:9.
-    Show ${protagonistName} (protagonist) and ${heroineName} (heroine) together in the same scene: ${scene}.
-    They are doing a sweet couple activity (for example: walking side by side, holding hands, smiling at each other).
-    Full body or half body composition is acceptable, but BOTH characters must be clearly visible in the frame.
-    ${affectionHint}
-    Style: Japanese anime, clean lines, saturated but soft colors, no photorealism, no western style.
-    No text, no UI elements, no game screenshots, no additional characters.
-  `;
-
-  return getImageUrlFromParts([{ text }], '16:9');
-};
-
-export const loadMusicBase64 = async () => {
-  const musicData: Record<string, string> = {};
-  for (const [key, file] of Object.entries(AUDIO_LIBRARY)) {
-    try {
-      const buff = fs.readFileSync(path.join(process.cwd(), file));
-      musicData[key] = buff.toString('base64');
-    } catch (e) {
-      console.warn(`Music missing: ${file}`);
-    }
-  }
-  return musicData;
-};
