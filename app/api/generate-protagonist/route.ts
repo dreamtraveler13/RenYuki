@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateProtagonist } from '@/lib/aiServer';
+import { generateProtagonist, withAiDebug } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
 import { enforceNoCnPoliticalSensitive, enforcePolicyAccepted } from '@/lib/policy';
 
@@ -14,8 +14,10 @@ export async function POST(req: NextRequest) {
   const policyRes = await enforceNoCnPoliticalSensitive({ userId, inputs: [emotion] });
   if (policyRes) return policyRes;
   try {
-    const imageUrl = await generateProtagonist(emotion, userPhotoBase64, referenceImageBase64, mimeType);
-    return NextResponse.json({ imageUrl });
+    const { result, debug } = await withAiDebug(() =>
+      generateProtagonist(emotion, userPhotoBase64, referenceImageBase64, mimeType)
+    );
+    return NextResponse.json(debug ? { imageUrl: result, debug } : { imageUrl: result });
   } catch (err: any) {
     console.error('generate-protagonist failed', err);
     return NextResponse.json({ error: err?.message || 'Failed to generate protagonist' }, { status: 500 });

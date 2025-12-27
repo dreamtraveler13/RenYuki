@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { AsyncLocalStorage } from 'async_hooks';
 import { GameScript, SpeakerType, StoryNode } from '@/types';
 
 const FALLBACK_BACKGROUND = 'General anime scene';
@@ -24,6 +25,44 @@ const LINGYAAI_FETCH_TIMEOUT_MS = Number(process.env.LINGYAAI_FETCH_TIMEOUT_MS |
 const LINGYAAI_IMAGE_TIMEOUT_MS = Number(process.env.LINGYAAI_IMAGE_TIMEOUT_MS || 240_000);
 const LINGYAAI_IMAGE_DOWNLOAD_TIMEOUT_MS = Number(process.env.LINGYAAI_IMAGE_DOWNLOAD_TIMEOUT_MS || 90_000);
 const LINGYAAI_IMAGE_CONCURRENCY = Math.max(1, Number(process.env.LINGYAAI_IMAGE_CONCURRENCY || 16));
+const AI_DEBUG =
+  process.env.AI_DEBUG === '1' || process.env.AI_DEBUG === 'true' || process.env.AI_DEBUG === 'yes';
+
+type AiDebugEntry = {
+  id: string;
+  path: string;
+  request: unknown;
+  response?: unknown;
+  error?: string;
+  status?: number;
+  stream?: boolean;
+};
+
+type AiDebugStore = {
+  entries: AiDebugEntry[];
+};
+
+const aiDebugStorage = new AsyncLocalStorage<AiDebugStore>();
+
+export const isAiDebugEnabled = () => AI_DEBUG;
+
+export const withAiDebug = async <T,>(fn: () => Promise<T>): Promise<{ result: T; debug: AiDebugEntry[] | null }> => {
+  if (!isAiDebugEnabled()) return { result: await fn(), debug: null };
+  const store: AiDebugStore = { entries: [] };
+  const result = await aiDebugStorage.run(store, fn);
+  return { result, debug: store.entries };
+};
+
+export const withAiDebugStream = <T,>(
+  fn: () => AsyncGenerator<T>
+): { stream: AsyncGenerator<T>; debugStore: AiDebugStore | null } => {
+  if (!isAiDebugEnabled()) return { stream: fn(), debugStore: null };
+  const store: AiDebugStore = { entries: [] };
+  const stream = aiDebugStorage.run(store, fn);
+  return { stream, debugStore: store };
+};
+
+const getAiDebugStore = () => (isAiDebugEnabled() ? aiDebugStorage.getStore() : undefined);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -132,6 +171,12 @@ const lingyaPostJson = async <T>(path: string, body: unknown, opts?: { timeoutMs
   const ac = new AbortController();
   const timeoutMs = Number.isFinite(opts?.timeoutMs) ? (opts!.timeoutMs as number) : LINGYAAI_FETCH_TIMEOUT_MS;
   const timer = setTimeout(() => ac.abort(), timeoutMs).unref?.();
+  const debugStore = getAiDebugStore();
+  const debugEntry: AiDebugEntry | null = debugStore
+    ? { id: crypto.randomUUID(), path, request: body, stream: false }
+    : null;
+  if (debugEntry) debugStore!.entries.push(debugEntry);
+
   let resp: Response;
   try {
     resp = await fetch(`${LINGYAAI_BASE_URL}${path}`, {
@@ -146,7 +191,9 @@ const lingyaPostJson = async <T>(path: string, body: unknown, opts?: { timeoutMs
       signal: ac.signal,
     });
   } catch (e: any) {
-    throw new Error(e?.message || 'fetch failed');
+    const message = e?.message || 'fetch failed';
+    if (debugEntry) debugEntry.error = message;
+    throw new Error(message);
   } finally {
     clearTimeout(timer as any);
   }
@@ -159,22 +206,35 @@ const lingyaPostJson = async <T>(path: string, body: unknown, opts?: { timeoutMs
     data = null;
   }
 
+  if (debugEntry) debugEntry.status = resp.status;
+
   if (!resp.ok) {
     const message = getLingyaErrorMessage(data) || (rawText.trim().length > 0 ? rawText.trim() : null) || `Request failed: ${resp.status}`;
+    if (debugEntry) {
+      debugEntry.response = data || rawText;
+      debugEntry.error = message;
+    }
     throw new Error(message);
   }
 
   if (!data) {
     const ct = resp.headers.get('content-type') || 'unknown';
-    throw new Error(`Upstream returned empty/invalid JSON (status=${resp.status}, content-type=${ct})`);
+    const message = `Upstream returned empty/invalid JSON (status=${resp.status}, content-type=${ct})`;
+    if (debugEntry) debugEntry.error = message;
+    throw new Error(message);
   }
 
   // Some upstreams return 200 with an { error: ... } envelope.
   if (data && typeof data === 'object' && (data as any).error) {
     const message = getLingyaErrorMessage(data) || 'Upstream error';
+    if (debugEntry) {
+      debugEntry.response = data;
+      debugEntry.error = message;
+    }
     throw new Error(message);
   }
 
+  if (debugEntry) debugEntry.response = data;
   return data as T;
 };
 
@@ -254,6 +314,19 @@ const lingyaChatCompletionStream = async (params: {
   signal?: AbortSignal;
 }) => {
   const apiKey = ensureLingyaKey();
+  const body = {
+    model: LINGYAAI_CHAT_MODEL,
+    messages: params.messages,
+    temperature: params.temperature,
+    max_tokens: params.max_tokens,
+    stream: true,
+  };
+  const debugStore = getAiDebugStore();
+  const debugEntry: AiDebugEntry | null = debugStore
+    ? { id: crypto.randomUUID(), path: '/v1/chat/completions', request: body, stream: true }
+    : null;
+  if (debugEntry) debugStore!.entries.push(debugEntry);
+
   const resp = await fetch(`${LINGYAAI_BASE_URL}/v1/chat/completions`, {
     method: 'POST',
     headers: {
@@ -261,16 +334,12 @@ const lingyaChatCompletionStream = async (params: {
       Accept: 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model: LINGYAAI_CHAT_MODEL,
-      messages: params.messages,
-      temperature: params.temperature,
-      max_tokens: params.max_tokens,
-      stream: true,
-    }),
+    body: JSON.stringify(body),
     cache: 'no-store',
     signal: params.signal,
   });
+
+  if (debugEntry) debugEntry.status = resp.status;
 
   if (!resp.ok) {
     const rawText = await resp.text().catch(() => '');
@@ -281,15 +350,21 @@ const lingyaChatCompletionStream = async (params: {
       data = null;
     }
     const message = getLingyaErrorMessage(data) || (rawText.trim().length > 0 ? rawText.trim() : null) || `Request failed: ${resp.status}`;
+    if (debugEntry) {
+      debugEntry.response = data || rawText;
+      debugEntry.error = message;
+    }
     throw new Error(message);
   }
 
   if (!resp.body) {
     const ct = resp.headers.get('content-type') || 'unknown';
-    throw new Error(`Upstream stream missing body (content-type=${ct})`);
+    const message = `Upstream stream missing body (content-type=${ct})`;
+    if (debugEntry) debugEntry.error = message;
+    throw new Error(message);
   }
 
-  return resp;
+  return { resp, debugEntry };
 };
 
 type LingyaChatCompletionChunk = {
@@ -322,10 +397,11 @@ async function* lingyaChatCompletionDeltaStream(params: {
   max_tokens?: number;
   signal?: AbortSignal;
 }): AsyncGenerator<string> {
-  const resp = await lingyaChatCompletionStream(params);
+  const { resp, debugEntry } = await lingyaChatCompletionStream(params);
   const reader = resp.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let debugText = '';
 
   while (true) {
     const { value, done } = await reader.read();
@@ -337,7 +413,10 @@ async function* lingyaChatCompletionDeltaStream(params: {
       const obj = parseStreamLineToChunkJson(rawLine);
       if (!obj) continue;
       const delta = getChunkDeltaContent(obj as LingyaChatCompletionChunk);
-      if (delta) yield delta;
+      if (delta) {
+        if (debugEntry) debugText += delta;
+        yield delta;
+      }
     }
   }
 
@@ -345,9 +424,14 @@ async function* lingyaChatCompletionDeltaStream(params: {
     const obj = parseStreamLineToChunkJson(buffer);
     if (obj) {
       const delta = getChunkDeltaContent(obj as LingyaChatCompletionChunk);
-      if (delta) yield delta;
+      if (delta) {
+        if (debugEntry) debugText += delta;
+        yield delta;
+      }
     }
   }
+
+  if (debugEntry) debugEntry.response = debugText;
 }
 
 type LingyaImagesGenerationResponse = {
@@ -1424,15 +1508,17 @@ export const generateProtagonist = async (
 	      4. INTEGRATION: Seamlessly attach the reference face to the new body pose.
 	      5. FRAMING: Half-body or full-body portrait, eye-level camera, front view.
 	      STYLE: Photorealistic. BACKGROUND: Pure Solid White (Hex #FFFFFF).
+	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
 	    `;
 	  } else if (referenceImageBase64) {
 	    parts.push({ inlineData: { mimeType: guessMimeTypeFromBase64(referenceImageBase64, mimeType), data: referenceImageBase64 } });
 	    prompt = `
 	      Reference: This anime character.
 	      Task: Redraw this character with NEW pose/expression: ${emotion} (subtle, no exaggerated action).
-	      Constraint: Keep facial features, hair, and clothing (Black Gakuran) identical.
+	      Constraint: MUST Keep facial features, hair identical!
 	      Framing: Half-body or full-body portrait, eye-level camera, front view.
 	      Background: Solid white.
+	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
 	    `;
 	  } else {
 	    prompt = `
@@ -1443,6 +1529,7 @@ export const generateProtagonist = async (
 	      Expression: ${emotion} (subtle, no exaggerated action).
 	      Framing: Half-body or full-body portrait, eye-level camera, front view.
 	      Background: Solid white.
+	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
 	    `;
 	  }
 
@@ -1470,6 +1557,7 @@ export const generateHeroine = async (
 	      5. FRAMING: Half-body or full-body portrait, eye-level camera, front view.
 	      6. VIBE: "少女化" / a sweet, youthful schoolgirl vibe (still the SAME face & hairstyle).
 	      STYLE: Photorealistic. BACKGROUND: Pure Solid White (Hex #FFFFFF).
+	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
 	      EXPRESSION/POSE HINTS (pick ONE that fits "${emotion}"):
 	      - shy: blushing, avoiding eye contact slightly, fingers fidgeting, small nervous smile
 	      - pampering/撒娇: puffed cheeks, tiny pout, hands lightly pulling sleeve
@@ -1486,6 +1574,7 @@ export const generateHeroine = async (
 	      - Expression must be MORE CLEAR and the gesture slightly more obvious (still natural; no exaggerated action).
 	      Framing: Half-body or full-body portrait, eye-level camera, front view.
 	      Background: Solid white.
+	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
 	      VIBE: "少女化" / sweet youthful schoolgirl vibe.
 	      EXPRESSION/POSE HINTS (pick ONE that fits ${emotion}):
 	      - shy: blushing, eyes glancing away, hands close to chest
@@ -1501,6 +1590,7 @@ export const generateHeroine = async (
 	      Pose: small, cute, natural gesture that matches the emotion (e.g., shy fidgeting, light sleeve tug, tiny pout).
 	      Framing: Half-body or full-body portrait, eye-level camera, front view.
 	      Background: Solid white.
+	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
 	    `;
 	  }
 

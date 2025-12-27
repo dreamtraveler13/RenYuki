@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateBackgroundImage } from '@/lib/aiServer';
+import { generateBackgroundImage, withAiDebug } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
 import { enforceNoCnPoliticalSensitive, enforcePolicyAccepted } from '@/lib/policy';
 
@@ -14,8 +14,8 @@ export async function POST(req: NextRequest) {
   const policyRes = await enforceNoCnPoliticalSensitive({ userId, inputs: [prompt] });
   if (policyRes) return policyRes;
   try {
-    const imageUrl = await generateBackgroundImage(prompt);
-    return NextResponse.json({ imageUrl });
+    const { result, debug } = await withAiDebug(() => generateBackgroundImage(prompt));
+    return NextResponse.json(debug ? { imageUrl: result, debug } : { imageUrl: result });
   } catch (err: any) {
     console.error('generate-image failed', err);
     return NextResponse.json({ error: err?.message || 'Failed to generate image' }, { status: 500 });

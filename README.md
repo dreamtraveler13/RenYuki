@@ -118,6 +118,9 @@ DATABASE_URL=postgresql://user:password@host:5432/renyuki?sslmode=require
 # 可选：前端调用 API 的基准地址（默认为空，即与 Next 应用同源）
 # NEXT_PUBLIC_API_BASE=https://your.domain.com
 
+# 可选：开启 AI 调试输出（接口响应会包含 debug 字段）
+# AI_DEBUG=1
+
 # 聚合支付（易支付 V2 / RSA，推荐）
 EPAY_BASE_URL=https://pays.org.cn
 EPAY_PID=你的PID

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateHeroine } from '@/lib/aiServer';
+import { generateHeroine, withAiDebug } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
 import { enforceNoCnPoliticalSensitive, enforcePolicyAccepted } from '@/lib/policy';
 
@@ -14,8 +14,10 @@ export async function POST(req: NextRequest) {
   const policyRes = await enforceNoCnPoliticalSensitive({ userId, inputs: [emotion] });
   if (policyRes) return policyRes;
   try {
-    const imageUrl = await generateHeroine(emotion, referenceImageBase64, userPhotoBase64, mimeType);
-    return NextResponse.json({ imageUrl });
+    const { result, debug } = await withAiDebug(() =>
+      generateHeroine(emotion, referenceImageBase64, userPhotoBase64, mimeType)
+    );
+    return NextResponse.json(debug ? { imageUrl: result, debug } : { imageUrl: result });
   } catch (err: any) {
     console.error('generate-heroine failed', err);
     return NextResponse.json({ error: err?.message || 'Failed to generate heroine' }, { status: 500 });

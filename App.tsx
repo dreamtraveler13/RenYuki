@@ -297,60 +297,56 @@ const App: React.FC = () => {
   const TouchHomeMenu = () => (
     <div className="w-full h-full flex flex-col bg-white overflow-hidden relative">
       {/* TOP SECTION: VISUAL (62%) */}
-      <div className="relative h-[62%] w-full overflow-hidden bg-gray-100">
-        <div className="absolute inset-0 z-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
+      <div className="relative h-[62%] w-full bg-gray-100 z-10">
+        <div className="absolute inset-0 z-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5 overflow-hidden"></div>
         
         {/* Diagonal Cut Overlay */}
         <div className="absolute bottom-0 left-0 w-full h-16 bg-white transform -skew-y-3 origin-bottom-left z-20 scale-110 translate-y-8"></div>
 
-        <div className="absolute inset-0 flex items-end justify-center z-10 pb-8">
+        <div className="absolute inset-0 flex items-end justify-center z-10">
           {galleryHeroines.length > 0 ? (
             <div className="relative w-full h-full animate-fade-in">
               {galleryHeroines.map((h) => (
                 <div
                   key={h.id}
-                  className="absolute bottom-0 left-1/2 -translate-x-1/2 filter contrast-110"
+                  className="absolute bottom-0 left-1/4 -translate-x-1/4 translate-y-[40%] filter contrast-110 scale-[1.7] origin-bottom"
                   style={{ width: 'auto', height: '100%' }}
                 >
                   <img
                     src={`data:image/png;base64,${h.image}`}
-                    className="h-[90%] w-auto object-contain drop-shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
+                    className="h-full w-auto object-contain drop-shadow-[0_10px_30px_rgba(0,0,0,0.2)]"
                     alt={h.name}
                   />
-                  {/* Floating Tag */}
-                  <div className="absolute top-1/4 right-0 bg-black/80 backdrop-blur text-white text-[9px] font-mono-tech px-2 py-1 border-l-2 border-white stagger-enter stagger-3">
-                    ID: {h.name.toUpperCase()}
-                  </div>
                 </div>
               ))}
             </div>
           ) : (
              <div className="w-full h-full flex items-center justify-center">
-                <div className="text-4xl font-black text-gray-200 -rotate-90 tracking-widest opacity-30">NO_DATA</div>
+                <div className="text-4xl font-black text-gray-200 -rotate-90 tracking-widest opacity-30">无数据</div>
              </div>
           )}
         </div>
       </div>
 
       {/* BOTTOM SECTION: CONTROLS (38%) */}
-      <div className="flex-1 bg-white relative z-30 px-6 pt-2 pb-8 flex flex-col justify-between">
+      <div className="flex-1 bg-white relative z-30 px-6 pt-2 pb-2 flex flex-col justify-end gap-6 shadow-[0_-20px_50px_rgba(255,255,255,1)]">
         {/* Header */}
-        <div className="stagger-enter stagger-1">
+        <div className="stagger-enter stagger-1 relative z-40">
           <h1 className="text-5xl font-black tracking-tighter leading-[0.8] mb-1">RenYuki</h1>
           <div className="flex items-center gap-3">
              <div className="h-0.5 w-8 bg-black"></div>
-             <span className="text-xs font-mono-tech text-gray-400 tracking-widest uppercase">Mobile Interface v2.1</span>
+             <span className="text-xs font-mono-tech text-gray-400 tracking-widest uppercase">移动端界面 v2.1</span>
           </div>
         </div>
 
         {/* Menu Items */}
-        <div className="flex flex-col gap-3 mt-4">
+        <div className="flex flex-col gap-3">
           <button
             onClick={startCreation}
             className="group flex items-center justify-between border-b border-gray-200 py-3 active:border-black transition-colors stagger-enter stagger-2 touch-active"
           >
             <span className="text-xl font-bold tracking-wide group-active:translate-x-1 transition-transform">创建新嘎拉</span>
-            <span className="font-mono-tech text-xs text-gray-400">01 // CREATE</span>
+            <span className="font-mono-tech text-xs text-gray-400">01 // 创建</span>
           </button>
 
           <button
@@ -358,7 +354,7 @@ const App: React.FC = () => {
             className="group flex items-center justify-between border-b border-gray-200 py-3 active:border-black transition-colors stagger-enter stagger-3 touch-active"
           >
             <span className="text-xl font-bold tracking-wide group-active:translate-x-1 transition-transform">读取记忆</span>
-            <span className="font-mono-tech text-xs text-gray-400">02 // LOAD</span>
+            <span className="font-mono-tech text-xs text-gray-400">02 // 读取</span>
           </button>
 
           <button
@@ -366,13 +362,15 @@ const App: React.FC = () => {
             className="group flex items-center justify-between border-b border-gray-200 py-3 active:border-black transition-colors stagger-enter stagger-4 touch-active"
           >
              <span className="text-xl font-bold tracking-wide group-active:translate-x-1 transition-transform">嘎拉广场</span>
-             <span className="font-mono-tech text-xs text-gray-400">03 // PLAZA</span>
+             <span className="font-mono-tech text-xs text-gray-400">03 // 广场</span>
           </button>
         </div>
 
         {/* Footer */}
-        <div className="text-[9px] text-gray-300 font-mono-tech leading-tight stagger-enter stagger-5 text-center mt-auto pt-4">
-          REN_YUKI PROJECT © 2025 <br/> AI GENERATED CONTENT / SAFETY PROTOCOLS ACTIVE
+        <div className="stagger-enter stagger-5">
+          <div className="text-[9px] text-gray-400/60 leading-relaxed max-w-xs mx-auto text-center select-none">
+            本站为 AI 生成内容演示/娱乐用途；请勿上传或生成违法、色情、暴力、侵权或涉及未成年人的内容。由用户输入/上传导致的后果由用户自行承担。
+          </div>
         </div>
       </div>
     </div>

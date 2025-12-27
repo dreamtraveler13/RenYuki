@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { continueStory, continueStoryStream } from '@/lib/aiServer';
+import { continueStory, continueStoryStream, withAiDebug, withAiDebugStream } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
 import { enforceNoCnPoliticalSensitive, enforcePolicyAccepted } from '@/lib/policy';
 
@@ -32,19 +32,25 @@ export async function POST(req: NextRequest) {
 
   if (stream) {
     const encoder = new TextEncoder();
+    const { stream: aiStream, debugStore } = withAiDebugStream(() =>
+      continueStoryStream({
+        protagonistName,
+        heroineName,
+        userChoiceText,
+        affinity,
+        allowedBackgroundPrompts,
+        recentDialogue,
+        signal: req.signal,
+      })
+    );
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
-          for await (const evt of continueStoryStream({
-            protagonistName,
-            heroineName,
-            userChoiceText,
-            affinity,
-            allowedBackgroundPrompts,
-            recentDialogue,
-            signal: req.signal,
-          })) {
+          for await (const evt of aiStream) {
             controller.enqueue(encoder.encode(JSON.stringify(evt) + '\n'));
+          }
+          if (debugStore && debugStore.entries.length > 0) {
+            controller.enqueue(encoder.encode(JSON.stringify({ type: 'debug', debug: debugStore.entries }) + '\n'));
           }
         } catch (err: any) {
           const message = err?.message || 'Failed to continue script';
@@ -65,16 +71,18 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { nodes, startNodeId, affinityDelta, ending } = await continueStory({
-      protagonistName,
-      heroineName,
-      userChoiceText,
-      affinity,
-      allowedBackgroundPrompts,
-      recentDialogue,
-    });
-
-    return NextResponse.json({ nodes, startNodeId, affinityDelta, ending });
+    const { result, debug } = await withAiDebug(() =>
+      continueStory({
+        protagonistName,
+        heroineName,
+        userChoiceText,
+        affinity,
+        allowedBackgroundPrompts,
+        recentDialogue,
+      })
+    );
+    const { nodes, startNodeId, affinityDelta, ending } = result;
+    return NextResponse.json(debug ? { nodes, startNodeId, affinityDelta, ending, debug } : { nodes, startNodeId, affinityDelta, ending });
   } catch (err: any) {
     console.error('continue-script failed', err);
     return NextResponse.json({ error: err?.message || 'Failed to continue script' }, { status: 500 });

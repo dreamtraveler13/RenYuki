@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateScript } from '@/lib/aiServer';
+import { generateScript, withAiDebug } from '@/lib/aiServer';
 import { getUserIdFromRequest } from '@/lib/authSession';
 import { consumeUserCoins, refundUserCoins } from '@/lib/userStore';
 import { enforceNoCnPoliticalSensitive, enforcePolicyAccepted } from '@/lib/policy';
@@ -36,8 +36,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const data = await generateScript(protagonistName, heroineName, plotDescription);
-    return NextResponse.json(data);
+    const { result, debug } = await withAiDebug(() => generateScript(protagonistName, heroineName, plotDescription));
+    return NextResponse.json(debug ? { ...result, debug } : result);
   } catch (err: any) {
     console.error('generate-script failed', err);
     try {
