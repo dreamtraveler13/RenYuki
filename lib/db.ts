@@ -1,62 +1,55 @@
-import fs from 'fs/promises';
-import path from 'path';
+import { Pool } from 'pg';
 
-export type DbSchema = {
-  users: Record<string, any>;
-  usernameToId: Record<string, string>;
-  orders: Record<string, any>;
+const getDatabaseUrl = () => {
+  const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!url) throw new Error('DATABASE_URL is missing. Set it in your server environment.');
+  return url;
 };
 
-const defaultDb = (): DbSchema => ({
-  users: {},
-  usernameToId: {},
-  orders: {},
-});
+const shouldUseSsl = (url: string) => {
+  const sslMode = process.env.PGSSLMODE || '';
+  if (sslMode && /require|verify/i.test(sslMode)) return true;
+  if (process.env.PG_SSL === '1' || process.env.POSTGRES_SSL === '1') return true;
+  return /sslmode=require/i.test(url);
+};
 
-const getDataDir = () => process.env.RENYUKI_DATA_DIR || path.join(process.cwd(), 'data');
-const getDbPath = () => path.join(getDataDir(), 'db.json');
+const createPool = () => {
+  const connectionString = getDatabaseUrl();
+  const useSsl = shouldUseSsl(connectionString);
+  const max = Number(process.env.PG_POOL_MAX || 5);
+  return new Pool({
+    connectionString,
+    max: Number.isFinite(max) ? max : 5,
+    ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+  });
+};
 
-export const readDb = async (): Promise<DbSchema> => {
-  const dbPath = getDbPath();
-  try {
-    const raw = await fs.readFile(dbPath, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return defaultDb();
-    return {
-      users: (parsed as any).users && typeof (parsed as any).users === 'object' ? (parsed as any).users : {},
-      usernameToId:
-        (parsed as any).usernameToId && typeof (parsed as any).usernameToId === 'object' ? (parsed as any).usernameToId : {},
-      orders: (parsed as any).orders && typeof (parsed as any).orders === 'object' ? (parsed as any).orders : {},
-    };
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') return defaultDb();
-    throw err;
+const globalForPg = globalThis as typeof globalThis & { __renyukiPgPool?: Pool };
+
+export const getDb = async (): Promise<Pool> => {
+  if (!globalForPg.__renyukiPgPool) {
+    globalForPg.__renyukiPgPool = createPool();
   }
+  return globalForPg.__renyukiPgPool;
 };
 
-const writeDb = async (db: DbSchema) => {
-  const dataDir = getDataDir();
-  const dbPath = getDbPath();
-  await fs.mkdir(dataDir, { recursive: true });
-  const tmpPath = `${dbPath}.tmp`;
-  await fs.writeFile(tmpPath, JSON.stringify(db, null, 2), 'utf8');
-  await fs.rename(tmpPath, dbPath);
+export const jsonParse = <T,>(value: unknown, fallback: T): T => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'object') return value as T;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
 };
 
-let writeChain: Promise<void> = Promise.resolve();
-
-export const updateDb = async <T,>(fn: (db: DbSchema) => Promise<T> | T): Promise<T> => {
-  const task = writeChain
-    .catch(() => undefined)
-    .then(async () => {
-      const db = await readDb();
-      const result = await fn(db);
-      await writeDb(db);
-      return result;
-    });
-  writeChain = task.then(
-    () => undefined,
-    () => undefined
-  );
-  return task;
+export const jsonStringify = (value: unknown): string => {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return 'null';
+  }
 };

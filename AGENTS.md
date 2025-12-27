@@ -1,9 +1,9 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Next.js App Router entry is in `app/` (`layout.tsx`, `page.tsx`) with API routes under `app/api/*` for generate-image/script/voice/task endpoints.
+- Next.js App Router entry is in `app/` (`layout.tsx`, `page.tsx`) with API routes under `app/api/*` for generate-image/script endpoints.
 - UI sits in `App.tsx` and `components/*` (wizard, console, player). Server helpers live in `lib/` and `services/*` for AI orchestration and task handling.
-- Edge/longer-running jobs mirror HTTP APIs in `functions/api/*`. Static assets live in `public/`; payment art in `pay/`; sample outputs/logs in `job_results/`. Shared types stay in `types.ts`.
+- Static assets live in `public/`; sample outputs/logs in `job_results/`. Shared types stay in `types.ts`.
 - Secrets and runtime settings load from `.env.local` only.
 
 ## Build, Test, and Development Commands

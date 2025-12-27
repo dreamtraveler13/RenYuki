@@ -3,8 +3,7 @@ export enum GameState {
   HOME,
   CREATING,
   PLAYING,
-  FINISHED,
-  DEV
+  FINISHED
 }
 
 export enum SpeakerType {
@@ -19,6 +18,17 @@ export interface CharacterImages {
   angry: string;
   shy: string; 
   sad?: string;
+}
+
+export type CharacterRole = 'protagonist' | 'heroine';
+
+export interface CharacterProfile {
+  id: string;
+  role: CharacterRole;
+  name: string;
+  images: CharacterImages;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Choice {
@@ -52,7 +62,6 @@ export interface GeneratedAssets {
   heroine: CharacterImages;
   protagonist: CharacterImages;
   backgrounds: Record<string, string>; 
-  voice: Record<string, string>; // nodeId -> base64 PCM (TTS)
   music: Record<string, string>; // key -> base64 audio data
 }
 
@@ -90,6 +99,18 @@ export interface PaymentOrder {
   tradeNo?: string;
 }
 
+export interface PlazaRoleSummary {
+  id: string;
+  role: CharacterRole;
+  name: string;
+  coverBase64: string;
+  createdAt: string;
+}
+
+export interface PlazaRole extends PlazaRoleSummary {
+  images: CharacterImages;
+}
+
 export interface PlazaGameSummary {
   id: string;
   title: string;
@@ -98,6 +119,7 @@ export interface PlazaGameSummary {
   affinity: number;
   coverBase64: string;
   plays: number;
+  reportCount?: number;
 }
 
 export interface PlazaGame extends PlazaGameSummary {

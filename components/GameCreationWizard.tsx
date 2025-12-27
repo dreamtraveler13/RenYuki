@@ -8,9 +8,7 @@ import { policyAccept, policyStatus, walletBalance } from '../services/accountSe
 import { saveGame } from '../services/storageService';
 
 interface Props {
-  authKey: string;
   onGameReady: (script: GameScript, assets: GeneratedAssets, user: UserProfile) => void;
-  onVoiceReady?: (nodeId: string, audioBase64: string) => void;
   onCoinsUpdated?: (coins: number) => void;
   onNeedCoins?: () => void;
   onCancel: () => void;
@@ -424,7 +422,7 @@ const OnboardingTour: React.FC<{
   );
 };
 
-const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpdated, onNeedCoins, onCancel }) => {
+const GameCreationWizard: React.FC<Props> = ({ onGameReady, onCoinsUpdated, onNeedCoins, onCancel }) => {
   const mountedRef = useRef(true);
   const [step, setStep] = useState<'upload' | 'generating'>('upload');
   const [loadingStatus, setLoadingStatus] = useState('');
@@ -572,32 +570,32 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
         if (protagonistPhoto) {
           if (maxMode) {
             const [normal, happy, surprised, angry] = await Promise.all([
-              generateProtagonistSprite('confident smile', protagonistPhoto, undefined, authKey, protagonistMimeType),
-              generateProtagonistSprite('bright happy smile', protagonistPhoto, undefined, authKey, protagonistMimeType),
-              generateProtagonistSprite('surprised, jaw drop, shock', protagonistPhoto, undefined, authKey, protagonistMimeType),
-              generateProtagonistSprite('annoyed, angry, slightly frowning', protagonistPhoto, undefined, authKey, protagonistMimeType),
+              generateProtagonistSprite('confident smile', protagonistPhoto, undefined, protagonistMimeType),
+              generateProtagonistSprite('bright happy smile', protagonistPhoto, undefined, protagonistMimeType),
+              generateProtagonistSprite('surprised, jaw drop, shock', protagonistPhoto, undefined, protagonistMimeType),
+              generateProtagonistSprite('annoyed, angry, slightly frowning', protagonistPhoto, undefined, protagonistMimeType),
             ]);
             return { normal, happy, surprised, angry, shy: happy };
           }
 
           const [normal, surprised] = await Promise.all([
-            generateProtagonistSprite('confident smile', protagonistPhoto, undefined, authKey, protagonistMimeType),
-            generateProtagonistSprite('surprised, jaw drop, shock', protagonistPhoto, undefined, authKey, protagonistMimeType),
+            generateProtagonistSprite('confident smile', protagonistPhoto, undefined, protagonistMimeType),
+            generateProtagonistSprite('surprised, jaw drop, shock', protagonistPhoto, undefined, protagonistMimeType),
           ]);
           return { normal, happy: normal, surprised, angry: surprised, shy: normal };
         }
 
-        const normal = await generateProtagonistSprite('confident smile', undefined, undefined, authKey);
+        const normal = await generateProtagonistSprite('confident smile');
         if (maxMode) {
           const [happy, surprised, angry] = await Promise.all([
-            generateProtagonistSprite('bright happy smile', undefined, normal, authKey),
-            generateProtagonistSprite('surprised, jaw drop, shock', undefined, normal, authKey),
-            generateProtagonistSprite('annoyed, angry, slightly frowning', undefined, normal, authKey),
+            generateProtagonistSprite('bright happy smile', undefined, normal),
+            generateProtagonistSprite('surprised, jaw drop, shock', undefined, normal),
+            generateProtagonistSprite('annoyed, angry, slightly frowning', undefined, normal),
           ]);
           return { normal, happy, surprised, angry, shy: happy };
         }
 
-        const surprised = await generateProtagonistSprite('surprised, jaw drop, shock', undefined, normal, authKey);
+        const surprised = await generateProtagonistSprite('surprised, jaw drop, shock', undefined, normal);
         return { normal, happy: normal, surprised, angry: surprised, shy: normal };
       })();
 
@@ -607,41 +605,41 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
         if (heroinePhoto) {
           if (maxMode) {
             const [normal, happy, shy, surprised, angry, sad] = await Promise.all([
-              generateHeroineSprite('gentle smile', undefined, heroinePhoto, authKey, heroineMimeType),
-              generateHeroineSprite('laughing happily', undefined, heroinePhoto, authKey, heroineMimeType),
-              generateHeroineSprite('blushing shy', undefined, heroinePhoto, authKey, heroineMimeType),
-              generateHeroineSprite('surprised, wide eyes, slight gasp', undefined, heroinePhoto, authKey, heroineMimeType),
-              generateHeroineSprite('pouting, angry, cheeks slightly puffed', undefined, heroinePhoto, authKey, heroineMimeType),
-              generateHeroineSprite('sad, watery eyes, holding back tears', undefined, heroinePhoto, authKey, heroineMimeType),
+              generateHeroineSprite('gentle smile', undefined, heroinePhoto, heroineMimeType),
+              generateHeroineSprite('laughing happily', undefined, heroinePhoto, heroineMimeType),
+              generateHeroineSprite('blushing shy', undefined, heroinePhoto, heroineMimeType),
+              generateHeroineSprite('surprised, wide eyes, slight gasp', undefined, heroinePhoto, heroineMimeType),
+              generateHeroineSprite('pouting, angry, cheeks slightly puffed', undefined, heroinePhoto, heroineMimeType),
+              generateHeroineSprite('sad, watery eyes, holding back tears', undefined, heroinePhoto, heroineMimeType),
             ]);
             return { normal, happy, shy, surprised, angry, sad };
           }
 
           const [normal, happy, shy] = await Promise.all([
-            generateHeroineSprite('gentle smile', undefined, heroinePhoto, authKey, heroineMimeType),
-            generateHeroineSprite('laughing happily', undefined, heroinePhoto, authKey, heroineMimeType),
-            generateHeroineSprite('blushing shy', undefined, heroinePhoto, authKey, heroineMimeType),
+            generateHeroineSprite('gentle smile', undefined, heroinePhoto, heroineMimeType),
+            generateHeroineSprite('laughing happily', undefined, heroinePhoto, heroineMimeType),
+            generateHeroineSprite('blushing shy', undefined, heroinePhoto, heroineMimeType),
           ]);
           return { normal, happy, shy, surprised: normal, angry: normal };
         }
 
-        const normal = await generateHeroineSprite('gentle smile', undefined, undefined, authKey);
+        const normal = await generateHeroineSprite('gentle smile');
         if (mountedRef.current) setLoadingStatus('正在生成女主其他表情');
 
         if (maxMode) {
           const [happy, shy, surprised, angry, sad] = await Promise.all([
-            generateHeroineSprite('laughing happily', normal, undefined, authKey),
-            generateHeroineSprite('blushing shy', normal, undefined, authKey),
-            generateHeroineSprite('surprised, wide eyes, slight gasp', normal, undefined, authKey),
-            generateHeroineSprite('pouting, angry, cheeks slightly puffed', normal, undefined, authKey),
-            generateHeroineSprite('sad, watery eyes, holding back tears', normal, undefined, authKey),
+            generateHeroineSprite('laughing happily', normal, undefined),
+            generateHeroineSprite('blushing shy', normal, undefined),
+            generateHeroineSprite('surprised, wide eyes, slight gasp', normal, undefined),
+            generateHeroineSprite('pouting, angry, cheeks slightly puffed', normal, undefined),
+            generateHeroineSprite('sad, watery eyes, holding back tears', normal, undefined),
           ]);
           return { normal, happy, shy, surprised, angry, sad };
         }
 
         const [happy, shy] = await Promise.all([
-          generateHeroineSprite('laughing happily', normal, undefined, authKey),
-          generateHeroineSprite('blushing shy', normal, undefined, authKey),
+          generateHeroineSprite('laughing happily', normal, undefined),
+          generateHeroineSprite('blushing shy', normal, undefined),
         ]);
         return { normal, happy, shy, surprised: normal, angry: normal };
       })();
@@ -666,7 +664,7 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
         const results = await Promise.all(
           uniqueBgPrompts.filter(Boolean).map(async (prompt) => {
             try {
-              const img = await generateImage(prompt, authKey);
+              const img = await generateImage(prompt);
               return { prompt, img };
             } finally {
               bgDone += 1;
@@ -704,9 +702,8 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
         backgroundsPromise,
       ]);
 
-      // 5. Audio (TTS & BGM)
+      // 5. Audio (BGM)
       if (mountedRef.current) setLoadingStatus('正在加载背景音乐');
-      const voiceData: Record<string, string> = {};
       const musicData: Record<string, string> = {};
 
       // 5.1 Fetch BGM
@@ -722,8 +719,6 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
         })
       );
 
-      // 5.2 TTS is temporarily disabled
-
       const finalUserProfile: UserProfile = {
           name: userName,
           avatarBase64: protagonistPhoto || String(protagonistAssets.normal || '') 
@@ -733,7 +728,6 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
         protagonist: protagonistAssets,
         heroine: heroineAssets,
         backgrounds,
-        voice: voiceData,
         music: musicData
       };
 
@@ -841,110 +835,96 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
               )}
 
                 {/* Top Section: Narrative Prompt */}
-                <div className="mb-6 md:mb-12">
-                  <div className="border-l-2 border-black pl-3 md:pl-4 mb-2 md:mb-4">
-                    <h3 className="text-lg md:text-2xl font-black uppercase mb-0 md:mb-1">场景设定</h3>
-                  <p className="text-[10px] md:text-xs text-gray-500 font-mono-tech">用于生成剧情的设定</p>
-                </div>
+                <div className="mb-8 md:mb-12 stagger-enter">
+                  <div className="flex items-baseline gap-2 mb-4 border-b border-black pb-2">
+                    <span className="font-mono-tech text-xs text-black bg-gray-200 px-1">01</span>
+                    <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">场景设定</h3>
+                  </div>
 
-                <div>
+                <div className="relative group">
                   <textarea
                     ref={plotRef}
                     value={plotDescription}
                     onChange={(e) => setPlotDescription(e.target.value)}
-                    className="w-full bg-gray-50 border border-black/10 rounded-2xl px-4 py-3 text-sm md:text-lg font-medium h-28 md:h-28 resize-none focus:outline-none focus:border-black/25 focus:bg-white transition-colors"
-                    placeholder="例如：在屋顶一起吃午饭。"
+                    className="w-full bg-transparent border-b-2 border-gray-200 py-3 text-lg md:text-2xl font-medium h-32 md:h-28 resize-none focus:outline-none focus:border-black transition-colors rounded-none placeholder:text-gray-200 leading-relaxed font-mono-tech"
+                    placeholder="例如：在屋顶一起吃午饭..."
                   />
-                </div>
-
-                <div className="mt-3 md:mt-4">
-                  <div className="text-[10px] md:text-xs text-gray-500 font-mono-tech leading-relaxed">
-                    提示：MAX MODE 开关在底部，可随时开启（消耗 2 个嘎拉币）。
-                  </div>
                 </div>
                 </div>
 
                 {/* Mobile-first stacked layout, desktop keeps 2 columns */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-16">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-16">
               
               {/* Left Column: Protagonist */}
-              <div className="space-y-4 md:space-y-8 bg-white md:bg-transparent rounded-2xl md:rounded-none border border-black/10 md:border-0 p-4 md:p-0">
-                  <div className="border-l-2 border-black pl-3 md:pl-4">
-                    <h3 className="text-lg md:text-2xl font-black uppercase mb-0 md:mb-1">主角</h3>
-                    <p className="text-[10px] md:text-xs text-gray-500 font-mono-tech mt-1">填名字即可生成（照片可选）</p>
+              <div className="space-y-6 stagger-enter stagger-1">
+                  <div className="flex items-baseline gap-2 mb-2 border-b border-black pb-2">
+                    <span className="font-mono-tech text-xs text-black bg-gray-200 px-1">02</span>
+                    <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">主角</h3>
                   </div>
                   
-                  <div className="group">
-                    <label className="block text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 md:mb-2 text-gray-400">名字</label>
+                  <div className="group relative">
+                    <label className="block text-[9px] font-mono-tech text-gray-400 mb-1 uppercase tracking-wider">名字</label>
                     <input 
                       ref={protagonistNameRef}
                       type="text" 
                       value={userName}
                       onChange={(e) => setUserName(e.target.value)}
-                      className="w-full bg-gray-50 border border-black/10 rounded-2xl px-4 py-3 text-base md:text-xl font-medium focus:outline-none focus:border-black/25 focus:bg-white transition-colors"
-                      placeholder="请输入主角名字"
+                      className="w-full bg-transparent border-b-2 border-gray-200 py-2 text-xl md:text-2xl font-bold focus:outline-none focus:border-black transition-colors rounded-none placeholder:text-gray-200"
+                      placeholder="请输入名字"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 md:mb-2 text-gray-400">照片（可选）</label>
+                    <label className="block text-[9px] font-mono-tech text-gray-400 mb-2 uppercase tracking-wider">照片 (可选)</label>
                     <div
                       ref={protagonistUploadRef}
-                      className="border border-dashed border-gray-400 hover:border-black p-3 md:p-4 transition-all cursor-pointer relative h-28 md:h-32 flex items-center justify-center bg-gray-50 hover:bg-white group rounded-2xl"
+                      className="border border-dashed border-gray-300 hover:border-black transition-all cursor-pointer relative h-32 flex items-center justify-center bg-gray-50 hover:bg-white group"
                     >
                       <input type="file" accept="image/*" onChange={handleProtagonistUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                       {protagonistPhoto ? (
-                        <img src={`data:${protagonistMimeType};base64,${protagonistPhoto}`} className="h-full object-contain" alt="预览" />
+                        <img src={`data:${protagonistMimeType};base64,${protagonistPhoto}`} className="h-full object-contain mix-blend-multiply" alt="预览" />
                       ) : (
                         <div className="text-center group-hover:scale-105 transition-transform">
-                          <div className="text-xs font-semibold text-gray-900">上传图片</div>
-                          <div className="text-[10px] font-mono-tech text-gray-400 mt-1">更像你自己（可跳过）</div>
+                          <div className="text-xs font-bold text-gray-900 uppercase tracking-widest border border-black px-2 py-1 inline-block">上传图片</div>
                         </div>
                       )}
-                    </div>
-                    <div className="text-[9px] text-gray-400 font-mono-tech mt-1 opacity-70">
-                      请勿上传违法、色情、暴力或侵犯他人肖像权的照片，后果自负。
                     </div>
                   </div>
               </div>
 
               {/* Right Column: Heroine */}
-              <div className="space-y-4 md:space-y-8 bg-white md:bg-transparent rounded-2xl md:rounded-none border border-black/10 md:border-0 p-4 md:p-0">
-                  <div className="border-l-2 border-black pl-3 md:pl-4">
-                    <h3 className="text-lg md:text-2xl font-black uppercase mb-0 md:mb-1">女主角</h3>
-                    <p className="text-[10px] md:text-xs text-gray-500 font-mono-tech mt-1">可留空，默认 Unit-01</p>
+              <div className="space-y-6 stagger-enter stagger-2">
+                  <div className="flex items-baseline gap-2 mb-2 border-b border-black pb-2">
+                    <span className="font-mono-tech text-xs text-black bg-gray-200 px-1">03</span>
+                    <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">女主角</h3>
                   </div>
 
-                   <div className="group">
-                     <label className="block text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 md:mb-2 text-gray-400">名字</label>
+                   <div className="group relative">
+                     <label className="block text-[9px] font-mono-tech text-gray-400 mb-1 uppercase tracking-wider">名字</label>
                      <input 
                        ref={heroineNameRef}
                        type="text" 
                        value={heroineName}
                        onChange={(e) => setHeroineName(e.target.value)}
-                       className="w-full bg-gray-50 border border-black/10 rounded-2xl px-4 py-3 text-base md:text-xl font-medium focus:outline-none focus:border-black/25 focus:bg-white transition-colors"
-                       placeholder="请输入女主名字"
+                       className="w-full bg-transparent border-b-2 border-gray-200 py-2 text-xl md:text-2xl font-bold focus:outline-none focus:border-black transition-colors rounded-none placeholder:text-gray-200"
+                       placeholder="Unit-01 (默认)"
                      />
                    </div>
 
                    <div>
-                    <label className="block text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 md:mb-2 text-gray-400">照片（可选）</label>
+                    <label className="block text-[9px] font-mono-tech text-gray-400 mb-2 uppercase tracking-wider">照片 (可选)</label>
                     <div
                       ref={heroineUploadRef}
-                      className="border border-dashed border-gray-400 hover:border-black p-3 md:p-4 transition-all cursor-pointer relative h-28 md:h-32 flex items-center justify-center bg-gray-50 hover:bg-white group rounded-2xl"
+                      className="border border-dashed border-gray-300 hover:border-black transition-all cursor-pointer relative h-32 flex items-center justify-center bg-gray-50 hover:bg-white group"
                     >
                       <input type="file" accept="image/*" onChange={handleHeroineUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                       {heroinePhoto ? (
-                        <img src={`data:${heroineMimeType};base64,${heroinePhoto}`} className="h-full object-contain" alt="预览" />
+                        <img src={`data:${heroineMimeType};base64,${heroinePhoto}`} className="h-full object-contain mix-blend-multiply" alt="预览" />
                       ) : (
                         <div className="text-center group-hover:scale-105 transition-transform">
-                          <div className="text-xs font-semibold text-gray-900">上传图片</div>
-                          <div className="text-[10px] font-mono-tech text-gray-400 mt-1">决定女主外观（可跳过）</div>
+                          <div className="text-xs font-bold text-gray-900 uppercase tracking-widest border border-black px-2 py-1 inline-block">上传图片</div>
                         </div>
                       )}
-                    </div>
-                    <div className="text-[9px] text-gray-400 font-mono-tech mt-1 opacity-70">
-                      请勿上传违法、色情、暴力或侵犯他人肖像权的照片，后果自负。
                     </div>
                   </div>
               </div>
@@ -952,60 +932,58 @@ const GameCreationWizard: React.FC<Props> = ({ authKey, onGameReady, onCoinsUpda
           </div>
 
           {/* Sticky action bar (mobile), normal footer on desktop */}
-          <div className="shrink-0 border-t border-gray-200 bg-white/95 backdrop-blur px-4 md:px-16 py-3 md:py-6">
+          <div className="shrink-0 border-t-2 border-black bg-white/95 backdrop-blur px-4 md:px-16 py-3 md:py-6 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-40">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div className="flex items-center justify-between gap-3">
                 <label
                   ref={maxModeRef}
-                  className={`flex items-center gap-2 select-none cursor-pointer rounded-2xl border px-3 py-2 transition-all duration-200 ${
-                    maxMode ? 'border-black/30 bg-black text-white shadow-sm' : 'border-black/10 bg-gray-50 text-black'
+                  className={`flex items-center gap-2 select-none cursor-pointer border px-3 py-2 transition-all duration-200 group ${
+                    maxMode ? 'border-black bg-black text-white' : 'border-black/20 bg-transparent text-black'
                   }`}
-                  title={maxMode ? 'MAX MODE：2 嘎拉币，立绘更多更精细' : '普通模式：1 嘎拉币'}
+                  title={maxMode ? 'MAX模式：2 嘎拉币，立绘更多更精细' : '普通模式：1 嘎拉币'}
                 >
                   <input
                     type="checkbox"
                     checked={maxMode}
                     onChange={(e) => setMaxMode(e.target.checked)}
-                    className="h-4 w-4"
+                    className="h-4 w-4 accent-black"
                   />
-                  <span className="text-xs font-semibold tracking-widest uppercase">MAX MODE</span>
-                  <span className="ml-1 text-[10px] font-mono-tech opacity-90 whitespace-nowrap">
-                    {maxMode ? '2 币·更精细' : '1 币'}
+                  <span className="text-xs font-bold tracking-widest uppercase">MAX 模式</span>
+                  <span className={`ml-1 text-[10px] font-mono-tech opacity-90 whitespace-nowrap border-l pl-2 ${maxMode ? 'border-white/30' : 'border-black/20'}`}>
+                    {maxMode ? '-2 币' : '-1 币'}
                   </span>
                 </label>
                 <div className="hidden md:block text-xs text-gray-500 font-mono-tech">
-                  生成需等待本页完成，请勿关闭。
+                  生成需等待，请勿关闭页面
                 </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 md:gap-6">
                 <button
                   onClick={onCancel}
-                  className="text-gray-400 hover:text-black font-bold uppercase tracking-widest text-xs md:text-sm transition-colors"
+                  className="text-gray-400 hover:text-black font-bold uppercase tracking-widest text-xs md:text-sm transition-colors border-b border-transparent hover:border-black"
                 >
                   取消
                 </button>
-                <div ref={startButtonWrapRef} className="flex items-center gap-2">
+                <div ref={startButtonWrapRef} className="flex items-center gap-2 flex-1 md:flex-none">
                   <Button
                     onClick={handleStart}
                     disabled={!userName}
-                    className={`w-full md:w-44 rounded-2xl border-black/20 transition-transform ${userName ? 'active:scale-[0.99]' : ''}`}
+                    className={`w-full md:w-56 transition-transform ${userName ? 'active:scale-[0.98]' : ''}`}
                   >
-                    {!userName ? '请先填写主角名字' : maxMode ? '开始生成（2 嘎拉币）' : '开始生成（1 嘎拉币）'}
+                    {!userName ? '请先填写主角名字' : maxMode ? '开始生成 (2 嘎拉币)' : '开始生成 (1 嘎拉币)'}
                   </Button>
                 </div>
               </div>
             </div>
-
-            <div
-              className={`md:hidden mt-2 text-[10px] font-mono-tech leading-relaxed transition-all ${
-                maxMode ? 'text-gray-900' : 'text-gray-500'
-              }`}
-            >
-              {maxMode ? 'MAX MODE 已开启：消耗 2 个嘎拉币（立绘更多更精细）。' : 'MAX MODE 关闭：消耗 1 个嘎拉币。'}
-            </div>
-            <div className="md:hidden mt-1 text-[10px] text-gray-500 font-mono-tech">
-              点击生成即表示你已同意免责声明，并承诺不生成任何违法/政治敏感内容。
+            
+            <div className="md:hidden mt-2 flex justify-between items-center border-t border-gray-100 pt-2">
+                <div className="text-[9px] font-mono-tech text-gray-400">
+                    模式: {maxMode ? 'MAX' : '标准'}
+                </div>
+                <div className="text-[9px] font-mono-tech text-gray-300 uppercase">
+                    安全协议已激活
+                </div>
             </div>
           </div>
           </div>

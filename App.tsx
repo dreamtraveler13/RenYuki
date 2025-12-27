@@ -7,7 +7,6 @@ import GalaPlazaModal from './components/GalaPlazaModal';
 import GameCreationWizard from './components/GameCreationWizard';
 import VisualNovelPlayer from './components/VisualNovelPlayer';
 import LoginScreen from './components/LoginScreen';
-import DevConsole from './components/DevConsole';
 import Button from './components/Button';
 import { getSaveList, deleteSave } from './services/storageService';
 import { authLogout, authMe } from './services/accountService';
@@ -20,7 +19,6 @@ type BeforeInstallPromptEvent = Event & {
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(GameState.HOME);
-  const [authToken, setAuthToken] = useState<string>('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
@@ -40,7 +38,6 @@ const App: React.FC = () => {
   const [currentScript, setCurrentScript] = useState<GameScript | null>(null);
   const [currentAssets, setCurrentAssets] = useState<GeneratedAssets | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [preloadedVoices, setPreloadedVoices] = useState<Record<string, string>>({});
   
   const [showLoadMenu, setShowLoadMenu] = useState(false);
   const [saveList, setSaveList] = useState<SaveFile[]>([]);
@@ -296,93 +293,86 @@ const App: React.FC = () => {
     }
     setGameState(GameState.CREATING);
   };
-  const startDevMode = () => setGameState(GameState.DEV);
 
   const TouchHomeMenu = () => (
-    <div className="w-full h-full flex flex-col soft-fade-in">
-      {/* Golden ratio split: upper longer, lower shorter */}
-      <div className="relative bg-gray-100 overflow-hidden flex-[1.618]">
-        <div className="absolute top-0 -left-10 w-20 h-full bg-gray-200 transform skew-x-[-10deg]" />
-        <div className="absolute inset-0 flex items-end justify-center">
+    <div className="w-full h-full flex flex-col bg-white overflow-hidden relative">
+      {/* TOP SECTION: VISUAL (62%) */}
+      <div className="relative h-[62%] w-full overflow-hidden bg-gray-100">
+        <div className="absolute inset-0 z-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
+        
+        {/* Diagonal Cut Overlay */}
+        <div className="absolute bottom-0 left-0 w-full h-16 bg-white transform -skew-y-3 origin-bottom-left z-20 scale-110 translate-y-8"></div>
+
+        <div className="absolute inset-0 flex items-end justify-center z-10 pb-8">
           {galleryHeroines.length > 0 ? (
-            <div className="relative w-full h-full">
+            <div className="relative w-full h-full animate-fade-in">
               {galleryHeroines.map((h) => (
                 <div
                   key={h.id}
-                  className="absolute bottom-0 left-1/2 -translate-x-1/2 transition-all duration-500 filter grayscale contrast-125"
-                  style={{
-                    zIndex: 10,
-                    opacity: 1,
-                  }}
+                  className="absolute bottom-0 left-1/2 -translate-x-1/2 filter contrast-110"
+                  style={{ width: 'auto', height: '100%' }}
                 >
                   <img
                     src={`data:image/png;base64,${h.image}`}
-                    className="h-[58vh] object-contain drop-shadow-2xl"
+                    className="h-[90%] w-auto object-contain drop-shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
                     alt={h.name}
                   />
-                  <div className="absolute top-3 right-3 bg-black text-white text-[10px] font-mono-tech px-2 py-1 rounded-lg opacity-80">
-                    编号: {h.name.toUpperCase()}
+                  {/* Floating Tag */}
+                  <div className="absolute top-1/4 right-0 bg-black/80 backdrop-blur text-white text-[9px] font-mono-tech px-2 py-1 border-l-2 border-white stagger-enter stagger-3">
+                    ID: {h.name.toUpperCase()}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="text-3xl font-black text-gray-300 opacity-50 tracking-widest whitespace-nowrap">
-              NO_DATA / 无数据
-            </div>
+             <div className="w-full h-full flex items-center justify-center">
+                <div className="text-4xl font-black text-gray-200 -rotate-90 tracking-widest opacity-30">NO_DATA</div>
+             </div>
           )}
         </div>
       </div>
 
-      <div className="relative bg-white px-6 pt-6 pb-8 flex-1">
-        {/* Divider line with logo "leaking" out of it */}
-        <div className="absolute left-0 right-0 top-16 -translate-y-1/2 px-6">
-          <div className="flex items-center gap-4">
-            <div className="h-px flex-1 bg-black/30" />
-            <div
-              className="font-black tracking-tighter leading-[0.8]"
-              style={{ fontSize: 'clamp(5.2rem, 22vw, 10.4rem)' }}
-            >
-              RenYuki
-            </div>
-            <div className="h-px flex-1 bg-black/30" />
+      {/* BOTTOM SECTION: CONTROLS (38%) */}
+      <div className="flex-1 bg-white relative z-30 px-6 pt-2 pb-8 flex flex-col justify-between">
+        {/* Header */}
+        <div className="stagger-enter stagger-1">
+          <h1 className="text-5xl font-black tracking-tighter leading-[0.8] mb-1">RenYuki</h1>
+          <div className="flex items-center gap-3">
+             <div className="h-0.5 w-8 bg-black"></div>
+             <span className="text-xs font-mono-tech text-gray-400 tracking-widest uppercase">Mobile Interface v2.1</span>
           </div>
         </div>
 
-        <div className="mt-28 flex flex-col items-center text-center">
-          <h2
-            className="font-light uppercase tracking-[0.3em] whitespace-nowrap"
-            style={{ fontSize: 'clamp(0.95rem, 4.2vw, 1.6rem)' }}
-          >
-            意淫你的嘎拉
-          </h2>
-          <div className="w-20 h-2 bg-black mt-4" />
-        </div>
-
-        {/* Centered, slightly lower, more compact */}
-        <div className="mt-8 space-y-2 flex flex-col items-center">
+        {/* Menu Items */}
+        <div className="flex flex-col gap-3 mt-4">
           <button
             onClick={startCreation}
-            className="text-2xl font-bold hover:bg-black hover:text-white px-6 py-2 transition-all uppercase tracking-wider text-center active:scale-[0.99] rounded-xl"
+            className="group flex items-center justify-between border-b border-gray-200 py-3 active:border-black transition-colors stagger-enter stagger-2 touch-active"
           >
-            01 // 创建新嘎拉
+            <span className="text-xl font-bold tracking-wide group-active:translate-x-1 transition-transform">创建新嘎拉</span>
+            <span className="font-mono-tech text-xs text-gray-400">01 // CREATE</span>
           </button>
+
           <button
             onClick={openLoadMenu}
-            className="text-2xl font-bold hover:bg-black hover:text-white px-6 py-2 transition-all uppercase tracking-wider text-center active:scale-[0.99] rounded-xl"
+            className="group flex items-center justify-between border-b border-gray-200 py-3 active:border-black transition-colors stagger-enter stagger-3 touch-active"
           >
-            02 // 读取记忆
+            <span className="text-xl font-bold tracking-wide group-active:translate-x-1 transition-transform">读取记忆</span>
+            <span className="font-mono-tech text-xs text-gray-400">02 // LOAD</span>
           </button>
+
           <button
             onClick={() => setShowPlaza(true)}
-            className="text-2xl font-bold hover:bg-black hover:text-white px-6 py-2 transition-all uppercase tracking-wider text-center active:scale-[0.99] rounded-xl"
+            className="group flex items-center justify-between border-b border-gray-200 py-3 active:border-black transition-colors stagger-enter stagger-4 touch-active"
           >
-            03 // 嘎拉广场
+             <span className="text-xl font-bold tracking-wide group-active:translate-x-1 transition-transform">嘎拉广场</span>
+             <span className="font-mono-tech text-xs text-gray-400">03 // PLAZA</span>
           </button>
         </div>
 
-        <div className="mt-8 text-[10px] text-gray-400/60 leading-relaxed max-w-md select-none text-center mx-auto">
-          本站为 AI 生成内容演示/娱乐用途；请勿上传或生成违法、色情、暴力、侵权或涉及未成年人的内容。由用户输入/上传导致的后果由用户自行承担。
+        {/* Footer */}
+        <div className="text-[9px] text-gray-300 font-mono-tech leading-tight stagger-enter stagger-5 text-center mt-auto pt-4">
+          REN_YUKI PROJECT © 2025 <br/> AI GENERATED CONTENT / SAFETY PROTOCOLS ACTIVE
         </div>
       </div>
     </div>
@@ -392,7 +382,6 @@ const App: React.FC = () => {
     try {
       await authLogout();
     } catch {}
-    setAuthToken('');
     setAccountUser(null);
     setIsLoggedIn(false);
     setAuthChecked(true);
@@ -400,21 +389,8 @@ const App: React.FC = () => {
     resetGame();
   };
 
-  const handleVoiceReady = (nodeId: string, audioBase64: string) => {
-    setPreloadedVoices(prev => ({ ...prev, [nodeId]: audioBase64 }));
-    setCurrentAssets(prev => {
-      if (!prev) return prev;
-      return { ...prev, voice: { ...(prev.voice || {}), [nodeId]: audioBase64 } };
-    });
-  };
-
   const handleGameReady = (script: GameScript, assets: GeneratedAssets, user: UserProfile) => {
-    const mergedAssets: GeneratedAssets = {
-      ...assets,
-      voice: { ...(assets.voice || {}), ...preloadedVoices },
-    };
-    setPreloadedVoices({});
-    proceedToGame(script, mergedAssets, user);
+    proceedToGame(script, assets, user);
   };
 
   const resetGame = () => {
@@ -425,7 +401,6 @@ const App: React.FC = () => {
     setCurrentScript(null);
     setCurrentAssets(null);
     setCurrentUser(null);
-    setPreloadedVoices({});
   };
 
   const handlePublishSaveToPlaza = async (save: SaveFile, e?: React.MouseEvent) => {
@@ -490,12 +465,6 @@ const App: React.FC = () => {
     }
   };
 
-  const activeKey = authToken || '';
-
-  // DEV MODE ROUTE
-  if (gameState === GameState.DEV) {
-    return <DevConsole authKey={activeKey} onExit={() => setGameState(GameState.HOME)} />;
-  }
 
   if (!authChecked) {
     return (
@@ -513,12 +482,6 @@ const App: React.FC = () => {
 
       <LoginScreen
         onLoggedIn={handleLoggedIn}
-        onEnterDevMode={() => {
-          setAuthChecked(true);
-          setIsLoggedIn(true);
-          setAuthToken('');
-          startDevMode();
-        }}
         onEnterPlazaAsGuest={() => {
           setAuthChecked(true);
           setIsLoggedIn(true);
@@ -632,7 +595,6 @@ const App: React.FC = () => {
              {/* LEFT: Typography & Nav */}
              <div className="col-span-5 h-full flex flex-col justify-center px-4 md:px-8 lg:px-20 relative bg-white border-r border-black z-20">
                 <div className="mb-8 lg:mb-20">
-                    {/* Updated to use larger fonts on mobile to mimic desktop scale */}
                     <h1 className="text-4xl md:text-5xl lg:text-8xl font-black tracking-tighter leading-[0.8]">RenYuki</h1>
                     <h2 className="text-sm md:text-xl lg:text-4xl font-light uppercase tracking-[0.3em] mt-2 whitespace-nowrap">意淫你的嘎拉</h2>
                     <div className="w-8 md:w-16 lg:w-20 h-1 lg:h-2 bg-black mt-4 lg:mt-6"></div>
@@ -769,9 +731,7 @@ const App: React.FC = () => {
 
         {gameState === GameState.CREATING && (
           <GameCreationWizard 
-            authKey={activeKey}
             onGameReady={handleGameReady}
-            onVoiceReady={handleVoiceReady}
             onCoinsUpdated={(newCoins) =>
               setAccountUser((prev) => (prev ? { ...prev, coins: newCoins } : prev))
             }
@@ -786,7 +746,6 @@ const App: React.FC = () => {
                script={currentScript}
                assets={currentAssets}
                userProfile={currentUser}
-               authKey={activeKey}
                initialNodeId={initialNodeId}
                initialAffinity={initialAffinity}
                onExit={resetGame}

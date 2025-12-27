@@ -96,110 +96,225 @@ const BuyCoinsModal: React.FC<Props> = ({ open, coins, onClose, onCoinsUpdated }
   const effectiveOrderId = order?.outTradeNo || pendingOutTradeNo;
 
   return (
-    <div className="fixed inset-0 z-[22000] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 overlay-fade-in">
-      <div className="w-full max-w-xl bg-white rounded-2xl border border-black/10 shadow-[0_30px_80px_rgba(0,0,0,0.25)] overflow-hidden modal-scale-in">
-        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <div className="text-base font-semibold text-gray-900">购买嘎拉币</div>
-            <div className="text-xs text-gray-500 mt-0.5">当前余额：{coins} 枚</div>
-          </div>
-          <button
-            onClick={close}
-            className="h-9 w-9 rounded-xl hover:bg-gray-100 text-gray-500 hover:text-gray-900 transition-colors"
-            aria-label="关闭"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="px-6 py-5">
-          <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1 w-fit">
-            <button
-              onClick={() => setPayType('alipay')}
-              className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
-                payType === 'alipay' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              支付宝
-            </button>
-            <button
-              onClick={() => setPayType('wxpay')}
-              className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
-                payType === 'wxpay' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              微信
-            </button>
-          </div>
-
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {PACKS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => create(p.id)}
-                disabled={creating}
-                className="group text-left rounded-2xl border border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50 transition-all p-4"
-              >
-                <div className="flex items-start justify-between">
+    <div className="fixed inset-0 z-[22000] bg-black/50 backdrop-blur-sm flex items-end md:items-center justify-center overlay-fade-in pointer-events-auto">
+      <div className="w-full max-w-xl bg-white md:border-4 border-t-4 border-black shadow-[0_-10px_40px_rgba(0,0,0,0.2)] md:shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] overflow-hidden mobile-sheet-enter md:modal-scale-in">
+        
+                {/* Header */}
+        
+                <div className="px-6 py-5 border-b border-black flex items-center justify-between bg-gray-50">
+        
                   <div>
-                    <div className="text-sm font-semibold text-gray-900">{p.title}</div>
-                    <div className="text-xs text-gray-500 mt-1">{p.subtitle}</div>
+        
+                    <div className="text-lg font-black uppercase tracking-tight">商店 // 嘎拉币</div>
+        
+                    <div className="text-xs font-mono-tech text-gray-500 mt-0.5">当前余额: {coins}</div>
+        
                   </div>
-                  <div className="text-sm font-semibold text-gray-900">{p.priceLabel}</div>
-                </div>
-                <div className="mt-3 text-[11px] text-gray-500">点击生成订单 → 前往支付 → 支付完成后同步到账</div>
-              </button>
-            ))}
-          </div>
-
-          {errorMessage && (
-            <div className="mt-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-              {errorMessage}
-            </div>
-          )}
-
-          {(order || pendingOutTradeNo) && (
-            <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs text-gray-600">订单号</div>
-                  <div className="text-sm font-mono-tech text-gray-900 break-all">{effectiveOrderId}</div>
-                  <div className="text-[11px] text-gray-500 mt-1">
-                    状态：{order ? order.status : 'created'}（如已支付，请点击“同步到账”）
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2 shrink-0">
-                  <a
-                    href={payUrl || '#'}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`text-center rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
-                      payUrl ? 'bg-gray-900 text-white hover:bg-black' : 'bg-gray-200 text-gray-500 pointer-events-none'
-                    }`}
-                  >
-                    前往支付
-                  </a>
+        
                   <button
-                    onClick={() => sync(effectiveOrderId)}
-                    disabled={syncing}
-                    className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
-                      syncing ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white text-gray-900 border border-gray-200 hover:bg-gray-100'
-                    }`}
+        
+                    onClick={close}
+        
+                    className="w-8 h-8 flex items-center justify-center border border-transparent hover:border-black hover:bg-black hover:text-white transition-all text-xl leading-none"
+        
+                    aria-label="关闭"
+        
                   >
-                    {syncing ? '同步中…' : '同步到账'}
+        
+                    ×
+        
                   </button>
+        
                 </div>
+        
+        
+        
+                <div className="px-6 py-6 bg-white">
+        
+                  <div className="flex items-center gap-0 border border-black w-fit mb-6">
+        
+                    <button
+        
+                      onClick={() => setPayType('alipay')}
+        
+                      className={`px-4 py-2 text-xs font-bold uppercase transition-colors ${
+        
+                        payType === 'alipay' ? 'bg-black text-white' : 'bg-white text-gray-500 hover:text-black'
+        
+                      }`}
+        
+                    >
+        
+                      支付宝
+        
+                    </button>
+        
+                    <div className="w-px h-full bg-black"></div>
+        
+                    <button
+        
+                      onClick={() => setPayType('wxpay')}
+        
+                      className={`px-4 py-2 text-xs font-bold uppercase transition-colors ${
+        
+                        payType === 'wxpay' ? 'bg-black text-white' : 'bg-white text-gray-500 hover:text-black'
+        
+                      }`}
+        
+                    >
+        
+                      微信
+        
+                    </button>
+        
+                  </div>
+        
+        
+        
+                  <div className="grid grid-cols-1 gap-3">
+        
+                    {PACKS.map((p) => (
+        
+                      <button
+        
+                        key={p.id}
+        
+                        onClick={() => create(p.id)}
+        
+                        disabled={creating}
+        
+                        className="group relative text-left border border-gray-300 hover:border-black transition-all p-4 active:bg-gray-50"
+        
+                      >
+        
+                        <div className="flex items-start justify-between relative z-10">
+        
+                          <div>
+        
+                            <div className="text-sm font-bold uppercase tracking-wide group-hover:underline decoration-2 underline-offset-4">{p.title}</div>
+        
+                            <div className="text-[10px] font-mono-tech text-gray-400 mt-1">{p.subtitle}</div>
+        
+                          </div>
+        
+                          <div className="text-lg font-black font-mono-tech">{p.priceLabel}</div>
+        
+                        </div>
+        
+                        {/* Tech Deco */}
+        
+                        <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-black opacity-0 group-hover:opacity-100 transition-opacity" />
+        
+                        <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-black opacity-0 group-hover:opacity-100 transition-opacity" />
+        
+                      </button>
+        
+                    ))}
+        
+                  </div>
+        
+        
+        
+                  {errorMessage && (
+        
+                    <div className="mt-4 text-xs font-mono-tech text-red-600 border border-red-200 bg-red-50 p-3">
+        
+                      错误: {errorMessage}
+        
+                    </div>
+        
+                  )}
+        
+        
+        
+                  {(order || pendingOutTradeNo) && (
+        
+                    <div className="mt-6 border-t-2 border-black pt-4 border-dashed">
+        
+                      <div className="flex flex-col gap-3">
+        
+                        <div>
+        
+                          <div className="text-[9px] font-mono-tech text-gray-400 uppercase">订单号</div>
+        
+                          <div className="text-xs font-mono-tech font-bold break-all bg-gray-100 p-1 mt-1">{effectiveOrderId}</div>
+        
+                          <div className="text-[10px] text-gray-500 mt-1">
+        
+                            状态: {order ? order.status.toUpperCase() : '已创建'}
+        
+                          </div>
+        
+                        </div>
+        
+                        <div className="grid grid-cols-2 gap-3 mt-2">
+        
+                          <a
+        
+                            href={payUrl || '#'}
+        
+                            target="_blank"
+        
+                            rel="noreferrer"
+        
+                            className={`flex items-center justify-center border border-black text-xs font-bold uppercase py-3 transition-colors ${
+        
+                              payUrl ? 'bg-black text-white hover:bg-gray-800' : 'bg-gray-100 text-gray-400 pointer-events-none border-gray-200'
+        
+                            }`}
+        
+                          >
+        
+                            立即支付
+        
+                          </a>
+        
+                          <button
+        
+                            onClick={() => sync(effectiveOrderId)}
+        
+                            disabled={syncing}
+        
+                            className={`flex items-center justify-center border border-black text-xs font-bold uppercase py-3 transition-colors ${
+        
+                              syncing ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-black hover:text-white'
+        
+                            }`}
+        
+                          >
+        
+                            {syncing ? '同步中...' : '同步状态'}
+        
+                          </button>
+        
+                        </div>
+        
+                      </div>
+        
+                    </div>
+        
+                  )}
+        
+        
+        
+                  <div className="mt-6 text-[9px] font-mono-tech text-gray-400 leading-relaxed border-t border-gray-100 pt-3">
+        
+                    提示: 支付回调可能有延迟。如果硬币没有立即出现，请等待10-30秒，然后点击“同步状态”。
+        
+                  </div>
+        
+                </div>
+        
               </div>
+        
             </div>
-          )}
-
-          <div className="mt-4 text-[11px] text-gray-500 leading-relaxed">
-            提示：若支付完成后未即时到账，可稍等 10–30 秒再点一次“同步到账”（平台回调/查询可能有延迟）。
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default BuyCoinsModal;
+        
+          );
+        
+        };
+        
+        
+        
+        export default BuyCoinsModal;
+        
+        

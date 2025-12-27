@@ -1,9 +1,8 @@
 'use client';
 
-import type { PlazaGame, PlazaGameSummary, SaveFile } from '../types';
+import type { CharacterProfile, CharacterRole, CharacterImages, PlazaRoleSummary } from '../types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
-
 const withBase = (path: string) => `${API_BASE}${path}`;
 
 const requestJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
@@ -44,34 +43,34 @@ const requestJson = async <T,>(path: string, init?: RequestInit): Promise<T> => 
   return data as T;
 };
 
-export const listPlazaGames = async (): Promise<PlazaGameSummary[]> => {
-  const data = await requestJson<{ games: PlazaGameSummary[] }>('/api/plaza/list', { method: 'GET' });
-  return data.games || [];
+export const listProfiles = async (): Promise<CharacterProfile[]> => {
+  const data = await requestJson<{ profiles: CharacterProfile[] }>('/api/profiles/list', { method: 'GET' });
+  return data.profiles || [];
 };
 
-export const getPlazaGame = async (id: string): Promise<PlazaGame> => {
-  const data = await requestJson<{ game: PlazaGame }>(`/api/plaza/game?id=${encodeURIComponent(id)}`, { method: 'GET' });
-  return data.game;
-};
-
-export const publishPlazaGame = async (save: SaveFile): Promise<PlazaGameSummary> => {
-  const sanitized: SaveFile = {
-    ...save,
-    assets: {
-      ...save.assets,
-      music: {},
-    },
-  };
-  const data = await requestJson<{ game: PlazaGameSummary }>('/api/plaza/publish', {
+export const createProfile = async (payload: {
+  role: CharacterRole;
+  name: string;
+  images: CharacterImages;
+}): Promise<CharacterProfile> => {
+  const data = await requestJson<{ profile: CharacterProfile }>('/api/profiles/create', {
     method: 'POST',
-    body: JSON.stringify({ save: sanitized }),
+    body: JSON.stringify(payload),
   });
-  return data.game;
+  return data.profile;
 };
 
-export const deletePlazaGame = async (id: string): Promise<{ ok: boolean }> => {
-  return await requestJson<{ ok: boolean }>('/api/plaza/delete', {
+export const deleteProfile = async (id: string) => {
+  return await requestJson<{ ok: boolean }>('/api/profiles/delete', {
     method: 'POST',
     body: JSON.stringify({ id }),
   });
+};
+
+export const publishProfile = async (id: string): Promise<PlazaRoleSummary> => {
+  const data = await requestJson<{ role: PlazaRoleSummary }>('/api/profiles/publish', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  });
+  return data.role;
 };

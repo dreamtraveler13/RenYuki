@@ -1,133 +1,112 @@
 import crypto from 'crypto';
-import fs from 'fs/promises';
-import path from 'path';
 import type { PlazaGame, PlazaGameSummary, SaveFile } from '@/types';
+import { getDb, jsonParse, jsonStringify } from './db';
 
-type PlazaRecord = {
+const defaultSave: SaveFile = {
+  id: 0,
+  title: 'Untitled Story',
+  date: new Date().toLocaleString('zh-CN'),
+  heroineName: 'Unknown',
+  affinity: 0,
+  currentNodeId: '',
+  script: { title: 'Untitled Story', heroineName: 'Unknown', startNodeId: '', nodes: {} },
+  assets: {
+    heroine: { normal: '', happy: '', surprised: '', angry: '', shy: '' },
+    protagonist: { normal: '', happy: '', surprised: '', angry: '', shy: '' },
+    backgrounds: {},
+    music: {},
+  },
+  userProfile: { name: '', avatarBase64: '' },
+};
+
+const toSummaryFromSave = (params: {
   id: string;
   createdAt: string;
-  uploaderUserId: string;
   plays: number;
+  reportCount?: number;
   save: SaveFile;
-};
-
-const getDataDir = () => process.env.RENYUKI_DATA_DIR || path.join(process.cwd(), 'data');
-const getPlazaDir = () => path.join(getDataDir(), 'plaza');
-const getPlazaPath = (id: string) => path.join(getPlazaDir(), `${id}.json`);
-
-const ensurePlazaDir = async () => {
-  await fs.mkdir(getPlazaDir(), { recursive: true });
-};
-
-const toSummary = (r: PlazaRecord): PlazaGameSummary => {
-  const coverBase64 = r.save.memoryCoverBase64 || r.save.assets?.heroine?.normal || '';
+}): PlazaGameSummary => {
+  const coverBase64 = params.save.memoryCoverBase64 || params.save.assets?.heroine?.normal || '';
   return {
-    id: r.id,
-    title: r.save.title || 'Untitled Story',
-    date: r.save.date || new Date(r.createdAt).toLocaleString('zh-CN'),
-    heroineName: r.save.heroineName || 'Unknown',
-    affinity: typeof r.save.affinity === 'number' ? r.save.affinity : 0,
+    id: params.id,
+    title: params.save.title || 'Untitled Story',
+    date: params.save.date || new Date(params.createdAt).toLocaleString('zh-CN'),
+    heroineName: params.save.heroineName || 'Unknown',
+    affinity: typeof params.save.affinity === 'number' ? params.save.affinity : 0,
     coverBase64,
-    plays: r.plays || 0,
+    plays: params.plays || 0,
+    reportCount: params.reportCount || 0,
   };
 };
 
-const readPlazaRecord = async (id: string): Promise<PlazaRecord | null> => {
-  try {
-    const raw = await fs.readFile(getPlazaPath(id), 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
-    if (typeof (parsed as any).id !== 'string') return null;
-    return parsed as PlazaRecord;
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') return null;
-    throw err;
-  }
-};
-
-const writePlazaRecord = async (rec: PlazaRecord) => {
-  await ensurePlazaDir();
-  const filePath = getPlazaPath(rec.id);
-  const tmpPath = `${filePath}.tmp`;
-  await fs.writeFile(tmpPath, JSON.stringify(rec, null, 2), 'utf8');
-  await fs.rename(tmpPath, filePath);
-};
-
-let writeChain: Promise<void> = Promise.resolve();
-
-const withWriteLock = async <T,>(fn: () => Promise<T>): Promise<T> => {
-  const task = writeChain
-    .catch(() => undefined)
-    .then(async () => await fn());
-  writeChain = task.then(
-    () => undefined,
-    () => undefined
-  );
-  return task;
-};
+const rowToSummary = (row: any): PlazaGameSummary => ({
+  id: String(row.id),
+  title: String(row.title || 'Untitled Story'),
+  date: String(row.date || new Date(row.created_at).toLocaleString('zh-CN')),
+  heroineName: String(row.heroine_name || 'Unknown'),
+  affinity: typeof row.affinity === 'number' ? row.affinity : Number(row.affinity) || 0,
+  coverBase64: String(row.cover_base64 || ''),
+  plays: typeof row.plays === 'number' ? row.plays : Number(row.plays) || 0,
+  reportCount: typeof row.report_count === 'number' ? row.report_count : Number(row.report_count) || 0,
+});
 
 export const listPlazaGames = async (): Promise<PlazaGameSummary[]> => {
-  await ensurePlazaDir();
-  const dir = getPlazaDir();
-  const files = await fs.readdir(dir).catch(() => []);
-  const ids = files
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => f.replace(/\.json$/, ''))
-    .filter((id) => id.length > 0);
-
-  const records = await Promise.all(
-    ids.map(async (id) => {
-      try {
-        return await readPlazaRecord(id);
-      } catch {
-        return null;
-      }
-    })
+  const db = await getDb();
+  const { rows } = await db.query(
+    `
+      SELECT id, title, date, heroine_name, affinity, cover_base64, plays, report_count, created_at
+      FROM plaza_games
+      ORDER BY created_at DESC
+    `
   );
-
-  return records
-    .filter((x): x is PlazaRecord => !!x)
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-    .map(toSummary);
+  return rows.map(rowToSummary);
 };
 
 export const getPlazaGame = async (id: string): Promise<PlazaGame | null> => {
-  const rec = await readPlazaRecord(id);
-  if (!rec) return null;
-  return { ...toSummary(rec), save: rec.save };
+  const db = await getDb();
+  const { rows } = await db.query('SELECT * FROM plaza_games WHERE id = $1', [id]);
+  if (!rows[0]) return null;
+  const save = jsonParse<SaveFile>(rows[0].save_json, defaultSave);
+  return { ...rowToSummary(rows[0]), save };
 };
 
 export const publishPlazaGame = async (userId: string, save: SaveFile): Promise<PlazaGameSummary> => {
   const id = crypto.randomUUID();
   const createdAt = new Date().toISOString();
-  const rec: PlazaRecord = {
-    id,
-    createdAt,
-    uploaderUserId: userId,
-    plays: 0,
-    save,
-  };
-  await withWriteLock(async () => await writePlazaRecord(rec));
-  return toSummary(rec);
+  const summary = toSummaryFromSave({ id, createdAt, plays: 0, reportCount: 0, save });
+  const db = await getDb();
+
+  await db.query(
+    `
+      INSERT INTO plaza_games (
+        id, created_at, uploader_user_id, title, date, heroine_name,
+        affinity, cover_base64, plays, report_count, save_json
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+    `,
+    [
+      id,
+      createdAt,
+      userId,
+      summary.title,
+      summary.date,
+      summary.heroineName,
+      summary.affinity,
+      summary.coverBase64,
+      summary.plays,
+      summary.reportCount || 0,
+      jsonStringify(save),
+    ]
+  );
+
+  return summary;
 };
 
 export const incrementPlazaPlay = async (id: string) => {
-  await withWriteLock(async () => {
-    const rec = await readPlazaRecord(id);
-    if (!rec) return;
-    rec.plays = (rec.plays || 0) + 1;
-    await writePlazaRecord(rec);
-  });
+  const db = await getDb();
+  await db.query('UPDATE plaza_games SET plays = plays + 1 WHERE id = $1', [id]);
 };
 
 export const deletePlazaGame = async (id: string) => {
-  await withWriteLock(async () => {
-    await ensurePlazaDir();
-    try {
-      await fs.unlink(getPlazaPath(id));
-    } catch (err: any) {
-      if (err?.code === 'ENOENT') return;
-      throw err;
-    }
-  });
+  const db = await getDb();
+  await db.query('DELETE FROM plaza_games WHERE id = $1', [id]);
 };

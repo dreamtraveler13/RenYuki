@@ -87,10 +87,8 @@ export default function SharedGamePage() {
         initialAffinity={game.save.affinity}
         onExit={() => router.push('/')}
         isTouchDevice={isTouchDevice}
-        authKey=""
         enableContinue={false}
       />
     </div>
   );
 }
-

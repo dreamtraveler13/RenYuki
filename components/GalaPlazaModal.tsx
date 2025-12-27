@@ -92,111 +92,137 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[23000] bg-[#f3f3f3] text-[#111] flex flex-col sheet-slide-in">
-      <div className="h-14 lg:h-20 border-b border-black flex items-center justify-between px-4 lg:px-10 bg-white shrink-0">
-        <div>
-          <div className="text-lg lg:text-2xl font-black uppercase">嘎拉广场</div>
-          <div className="hidden lg:block text-xs text-gray-500 mt-1">任何人都可以打开并游玩已发布的嘎拉</div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={refresh}
-            className="text-xs font-semibold px-3 py-2 rounded-xl border border-black/10 bg-white hover:bg-gray-50 transition-colors"
-            disabled={loading}
-          >
-            {loading ? '刷新中…' : '刷新'}
-          </button>
-          <button
-            onClick={onClose}
-            className="text-2xl lg:text-4xl hover:rotate-90 transition-transform"
-            aria-label="关闭"
-          >
-            ×
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 lg:p-10">
-        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-full lg:w-96 px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-300 bg-white"
-            placeholder="搜索标题 / 女主名"
-          />
-          <div className="text-xs text-gray-500">{loading ? '加载中…' : `共 ${filtered.length} 条`}</div>
-        </div>
-
-        {errorMessage && (
-          <div className="mt-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-            {errorMessage}
+    <div className="fixed inset-0 z-[23000] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center overlay-fade-in pointer-events-auto">
+      <div className="w-full h-[92vh] md:h-[85vh] md:max-w-6xl bg-[#f3f3f3] md:border-4 border-black shadow-2xl flex flex-col mobile-sheet-enter md:modal-scale-in overflow-hidden rounded-t-2xl md:rounded-none">
+        
+        {/* Header */}
+        <div className="h-16 border-b border-black bg-white shrink-0 flex items-center justify-between px-6 z-20">
+          <div className="flex flex-col">
+             <div className="text-xl font-black tracking-tighter uppercase leading-none">嘎拉广场</div>
+             <div className="text-[9px] font-mono-tech text-gray-400 tracking-widest mt-1">公共档案馆</div>
           </div>
-        )}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={refresh}
+              className="text-[10px] font-bold uppercase tracking-widest hover:bg-black hover:text-white px-3 py-1 border border-transparent hover:border-black transition-all"
+              disabled={loading}
+            >
+              {loading ? '同步中...' : '刷新'}
+            </button>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-2xl leading-none font-light"
+              aria-label="关闭"
+            >
+              ×
+            </button>
+          </div>
+        </div>
 
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map((g) => {
-            const cover = g.coverBase64 ? `data:image/png;base64,${g.coverBase64}` : '';
-            const busy = loadingId === g.id;
-            const deleting = deletingId === g.id;
-            return (
-              <div key={g.id} className="rounded-2xl border border-gray-200 overflow-hidden bg-white shadow-sm">
-                <div className="relative h-44 bg-gray-100">
-                  {cover ? (
-                    <img src={cover} className="absolute inset-0 w-full h-full object-cover" alt={g.title} />
-                  ) : (
-                    <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-400 font-mono-tech">
-                      NO_COVER
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto bg-gray-100 p-0 md:p-8">
+          
+          {/* Search Bar Area */}
+          <div className="sticky top-0 z-10 bg-gray-100/95 backdrop-blur border-b border-black/5 px-4 py-3 md:px-0 md:py-0 md:bg-transparent md:border-0 md:mb-6">
+            <div className="flex items-center border-b-2 border-black bg-white px-4 py-3 md:max-w-md">
+              <span className="text-gray-400 mr-3">🔍</span>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="flex-1 bg-transparent text-sm font-bold placeholder:text-gray-300 focus:outline-none uppercase font-mono-tech"
+                placeholder="搜索..."
+              />
+              <div className="text-[10px] font-mono-tech text-gray-400 border-l border-gray-200 pl-3">
+                 {loading ? '加载中' : `共 ${filtered.length} 条`}
+              </div>
+            </div>
+            
+            {errorMessage && (
+              <div className="mt-2 text-xs font-mono-tech text-red-600 bg-red-50 p-2 border border-red-200">
+                错误: {errorMessage}
+              </div>
+            )}
+          </div>
+
+          {/* Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-0 md:gap-6">
+            {filtered.map((g, idx) => {
+              const cover = g.coverBase64 ? `data:image/png;base64,${g.coverBase64}` : '';
+              const busy = loadingId === g.id;
+              const deleting = deletingId === g.id;
+              
+              return (
+                <div 
+                  key={g.id} 
+                  className={`group bg-white border-b md:border border-gray-200 md:hover:border-black transition-all md:hover:-translate-y-1 stagger-enter`}
+                  style={{ animationDelay: `${Math.min(idx * 0.05, 0.5)}s` }}
+                >
+                  <div className="relative h-48 md:h-56 bg-gray-200 overflow-hidden">
+                    {cover ? (
+                      <img 
+                        src={cover} 
+                        className="absolute inset-0 w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" 
+                        alt={g.title} 
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-400 font-mono-tech bg-[url('https://www.transparenttextures.com/patterns/diagonal-striped-brick.png')] opacity-50">
+                        无视觉数据
+                      </div>
+                    )}
+                    
+                    {/* Overlay Info */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-60 group-hover:opacity-80 transition-opacity" />
+                    
+                    <div className="absolute top-2 right-2 bg-black text-white text-[9px] font-mono-tech px-1.5 py-0.5">
+                       同步率: {g.affinity}%
                     </div>
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-                  <div className="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2 text-white">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold truncate">{g.title}</div>
-                      <div className="text-[11px] opacity-90 truncate">
-                        {g.heroineName} · {g.date}
+
+                    <div className="absolute bottom-3 left-3 right-3 text-white">
+                      <div className="text-[10px] font-mono-tech opacity-70 mb-1">{g.date}</div>
+                      <div className="text-lg font-bold leading-tight truncate uppercase tracking-wide">{g.title}</div>
+                      <div className="flex items-center justify-between mt-1">
+                          <div className="text-xs opacity-90 truncate max-w-[70%] font-mono-tech">
+                             {g.heroineName}
+                          </div>
+                          <div className="text-[10px] font-mono-tech opacity-60">▶ {g.plays}</div>
                       </div>
                     </div>
-                    <div className="text-[11px] font-mono-tech opacity-90 shrink-0">▶ {g.plays}</div>
                   </div>
-                </div>
 
-                <div className="p-4 flex items-center justify-between gap-3">
-                  <div className="text-xs text-gray-600">
-                    同步率 <span className="font-semibold text-gray-900">{g.affinity}%</span>
-                  </div>
-                  <div className="flex items-center gap-2">
+                  <div className="p-3 flex items-center gap-2">
+                    <button
+                      onClick={() => play(g.id)}
+                      disabled={!!loadingId || !!deletingId}
+                      className={`flex-1 text-center py-2 text-xs font-bold uppercase tracking-widest border transition-all ${
+                        busy 
+                          ? 'bg-gray-100 text-gray-400 border-transparent' 
+                          : 'bg-black text-white border-black hover:bg-white hover:text-black'
+                      }`}
+                    >
+                      {busy ? '加载中...' : '开始游戏'}
+                    </button>
+                    
                     {isAdmin && (
                       <button
                         onClick={() => remove(g.id)}
                         disabled={!!loadingId || !!deletingId}
-                        className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors border ${
-                          deleting
-                            ? 'bg-red-50 text-red-600 border-red-200'
-                            : 'bg-white text-red-600 border-red-200 hover:bg-red-50'
-                        }`}
-                        title="管理员删除"
+                        className="px-3 py-2 text-xs font-bold text-red-600 border border-gray-200 hover:bg-red-50 hover:border-red-500 transition-colors"
                       >
-                        {deleting ? '删除中…' : '删除'}
+                        删除
                       </button>
                     )}
-                    <button
-                      onClick={() => play(g.id)}
-                      disabled={!!loadingId || !!deletingId}
-                      className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
-                        busy ? 'bg-gray-200 text-gray-500' : 'bg-gray-900 text-white hover:bg-black'
-                      }`}
-                    >
-                      {busy ? '加载中…' : '游玩'}
-                    </button>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
 
-          {!loading && filtered.length === 0 && (
-            <div className="col-span-full text-center py-16 text-sm text-gray-500">暂无内容</div>
-          )}
+            {!loading && filtered.length === 0 && (
+              <div className="col-span-full py-20 text-center">
+                 <div className="text-4xl text-gray-200 font-black mb-2">空</div>
+                 <div className="text-xs text-gray-400 font-mono-tech">未找到任何记录</div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

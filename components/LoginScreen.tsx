@@ -3,14 +3,14 @@
 import React, { useMemo, useState } from 'react';
 import type { AccountUser } from '../types';
 import { authLogin, authRegister } from '../services/accountService';
+import Button from './Button';
 
 interface Props {
   onLoggedIn: (user: AccountUser) => void;
-  onEnterDevMode: () => void;
   onEnterPlazaAsGuest: () => void;
 }
 
-const LoginScreen: React.FC<Props> = ({ onLoggedIn, onEnterDevMode, onEnterPlazaAsGuest }) => {
+const LoginScreen: React.FC<Props> = ({ onLoggedIn, onEnterPlazaAsGuest }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -36,122 +36,124 @@ const LoginScreen: React.FC<Props> = ({ onLoggedIn, onEnterDevMode, onEnterPlaza
           : await authRegister({ username, password, displayName: displayName.trim() || undefined });
       onLoggedIn(user);
     } catch (err: any) {
-      setErrorMessage(err?.message || '登录失败，请重试');
+      setErrorMessage(err?.message || '身份验证失败');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="w-full h-full flex items-center justify-center bg-[#f7f7f8] p-6">
-      <div className="w-full max-w-md bg-white border border-black/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.10)] overflow-hidden">
-        <div className="px-6 pt-8 pb-6">
-          <div className="text-center">
-            <div className="text-3xl font-semibold tracking-tight text-gray-900">RenYuki</div>
-            <div className="text-sm text-gray-500 mt-1">意淫你的嘎拉</div>
+    <div className="w-full h-full flex items-end md:items-center justify-center bg-[#f3f3f3] md:p-6 overflow-hidden">
+      {/* Decorative Grid */}
+      <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(#000 1px, transparent 1px), linear-gradient(90deg, #000 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+      
+      {/* Card Container - Mobile: Bottom Sheet, Desktop: Center Card */}
+      <div className="w-full max-w-md bg-white border-t-4 md:border-4 border-black shadow-[0_-10px_40px_rgba(0,0,0,0.1)] md:shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] p-0 mobile-sheet-enter z-10 flex flex-col max-h-[90vh]">
+        
+        {/* Header Strip */}
+        <div className="bg-black text-white px-6 py-4 flex items-center justify-between shrink-0">
+          <div>
+            <div className="text-2xl font-black tracking-tighter uppercase">登录/注册</div>
+            <div className="text-[10px] font-mono-tech text-gray-400">身份验证</div>
           </div>
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_10px_#22c55e]"></div>
+        </div>
 
-          <div className="mt-6 flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+        {/* Content */}
+        <div className="p-6 md:p-8 space-y-6 overflow-y-auto">
+          {/* Tabs */}
+          <div className="flex border-b border-black/10 pb-1">
             <button
               onClick={() => setMode('login')}
-              className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${
-                mode === 'login' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              className={`flex-1 pb-3 text-sm font-bold tracking-widest uppercase transition-all ${
+                mode === 'login' ? 'text-black border-b-2 border-black' : 'text-gray-300 hover:text-gray-500'
               }`}
             >
               登录
             </button>
             <button
               onClick={() => setMode('register')}
-              className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${
-                mode === 'register' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              className={`flex-1 pb-3 text-sm font-bold tracking-widest uppercase transition-all ${
+                mode === 'register' ? 'text-black border-b-2 border-black' : 'text-gray-300 hover:text-gray-500'
               }`}
             >
               注册
             </button>
           </div>
 
-          <div className="mt-6 space-y-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">用户名</label>
+          <div className="space-y-5">
+            <div className="group relative">
+              <label className="block text-[10px] font-mono-tech text-gray-500 mb-1 uppercase tracking-wider">用户名</label>
               <input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-300"
-                placeholder="例如：gala_user"
+                className="w-full bg-transparent border-b border-gray-300 py-2 text-lg font-bold font-mono-tech focus:border-black focus:outline-none transition-colors rounded-none placeholder:text-gray-200"
+                placeholder="请输入用户名"
                 autoComplete="username"
               />
+              <div className="absolute bottom-0 left-0 w-0 h-0.5 bg-black transition-all duration-500 group-focus-within:w-full"></div>
             </div>
 
             {mode === 'register' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">昵称（可选）</label>
+              <div className="group relative stagger-enter stagger-1">
+                <label className="block text-[10px] font-mono-tech text-gray-500 mb-1 uppercase tracking-wider">昵称 (可选)</label>
                 <input
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-300"
+                  className="w-full bg-transparent border-b border-gray-300 py-2 text-lg font-bold font-mono-tech focus:border-black focus:outline-none transition-colors rounded-none placeholder:text-gray-200"
                   placeholder="展示在右上角"
                   autoComplete="nickname"
                 />
+                <div className="absolute bottom-0 left-0 w-0 h-0.5 bg-black transition-all duration-500 group-focus-within:w-full"></div>
               </div>
             )}
 
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">密码</label>
+            <div className="group relative stagger-enter stagger-2">
+              <label className="block text-[10px] font-mono-tech text-gray-500 mb-1 uppercase tracking-wider">密码</label>
               <input
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-300"
-                placeholder={mode === 'register' ? '至少 6 位' : '请输入密码'}
+                className="w-full bg-transparent border-b border-gray-300 py-2 text-lg font-bold font-mono-tech focus:border-black focus:outline-none transition-colors rounded-none placeholder:text-gray-200"
+                placeholder={mode === 'register' ? '至少6位' : '请输入密码'}
                 type="password"
                 autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleSubmit();
                 }}
               />
+               <div className="absolute bottom-0 left-0 w-0 h-0.5 bg-black transition-all duration-500 group-focus-within:w-full"></div>
             </div>
+          </div>
 
-            {errorMessage && (
-              <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-                {errorMessage}
-              </div>
-            )}
+          {errorMessage && (
+            <div className="text-xs font-mono-tech text-red-600 border border-red-200 bg-red-50 p-3 stagger-enter">
+              错误: {errorMessage}
+            </div>
+          )}
 
-            <button
+          <div className="pt-2 stagger-enter stagger-3">
+            <Button
               onClick={handleSubmit}
               disabled={!isValid || submitting}
-              className={`w-full rounded-xl py-2.5 text-sm font-semibold transition-all ${
-                !isValid || submitting
-                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                  : 'bg-gray-900 text-white hover:bg-black'
-              }`}
+              className="w-full py-4 text-base"
             >
-              {submitting ? '处理中…' : mode === 'login' ? '登录' : '注册并领取 1 个嘎拉币'}
-            </button>
-
-            <div className="text-[11px] text-gray-500 leading-relaxed bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
-              新用户赠送 <span className="font-semibold text-gray-800">1</span> 个嘎拉币；创建一次消耗{' '}
-              <span className="font-semibold text-gray-800">1</span> 个，MAX MODE 消耗{' '}
-              <span className="font-semibold text-gray-800">2</span> 个。
-            </div>
+              {submitting ? '处理中...' : mode === 'login' ? '登录' : '注册'}
+            </Button>
+            
+            {mode === 'register' && (
+               <div className="text-[10px] font-mono-tech text-gray-400 mt-2 text-center">
+                 首次注册赠送 1 嘎拉币
+               </div>
+            )}
           </div>
         </div>
 
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-          <div className="text-[11px] text-gray-500 font-mono-tech">SYSTEM v2.0.4</div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={onEnterPlazaAsGuest}
-              className="text-[11px] text-gray-600 hover:text-gray-900 font-mono-tech underline underline-offset-4"
-            >
-              游客进入广场
-            </button>
-            <button
-              onClick={onEnterDevMode}
-              className="text-[11px] text-gray-600 hover:text-gray-900 font-mono-tech underline underline-offset-4"
-            >
-              Dev Console
-            </button>
-          </div>
+        {/* Footer Info */}
+        <div className="bg-gray-50 px-6 py-4 border-t border-black/5 flex items-center justify-between shrink-0">
+           <div className="text-[10px] font-mono-tech text-gray-400">RenYuki 系统</div>
+           <button onClick={onEnterPlazaAsGuest} className="text-[10px] font-bold uppercase border-b border-gray-300 hover:border-black transition-colors">
+              游客模式
+           </button>
         </div>
       </div>
     </div>

@@ -16,7 +16,7 @@ const AUDIO_LIBRARY: Record<string, string> = {
 };
 
 const LINGYAAI_BASE_URL = process.env.LINGYAAI_BASE_URL || 'https://api.lingyaai.cn';
-const LINGYAAI_CHAT_MODEL = process.env.LINGYAAI_CHAT_MODEL || 'gemini-2.5-flash';
+const LINGYAAI_CHAT_MODEL = process.env.LINGYAAI_CHAT_MODEL || 'gemini-3-flash-preview';
 const LINGYAAI_IMAGE_MODEL = process.env.LINGYAAI_IMAGE_MODEL || 'doubao-seedream-4-5-251128';
 const LINGYAAI_IMAGE_SIZE = process.env.LINGYAAI_IMAGE_SIZE || '2K';
 const LINGYAAI_DEVELOPER_MESSAGE = process.env.LINGYAAI_DEVELOPER_MESSAGE || '你是一个有帮助的助手。';
@@ -231,16 +231,6 @@ const formatChatBlockedDetails = (response: LingyaChatCompletionResponse) => {
   return details.length > 0 ? ` (${details.join(', ')})` : '';
 };
 
-const maybeLogBlockedResponse = (response: LingyaChatCompletionResponse) => {
-  const enabled =
-    process.env.LINGYAAI_DEBUG === '1' || process.env.LINGYAAI_DEBUG === 'true' || process.env.LINGYAAI_DEBUG === 'yes';
-  if (!enabled) return;
-  try {
-    console.error('LINGYAAI_DEBUG blocked response:', JSON.stringify(response).slice(0, 2000));
-  } catch {
-    console.error('LINGYAAI_DEBUG blocked response: [unserializable]');
-  }
-};
 
 const lingyaChatCompletion = async (params: {
   messages: LingyaChatMessage[];
@@ -799,7 +789,6 @@ export const generateScriptRaw = async (
 
   const rawText = getChatContent(response);
   if (!rawText || rawText.trim().length === 0) {
-    maybeLogBlockedResponse(response);
     throw new Error(`AI Generation Blocked${formatChatBlockedDetails(response)}`);
   }
   return rawText;
@@ -934,7 +923,6 @@ export const generateScript = async (protagonistName: string, heroineName?: stri
     const first = await callScriptChat({ temperature });
     let rawText = getChatContent(first);
     if (!rawText || rawText.trim().length === 0) {
-      maybeLogBlockedResponse(first);
       throw new Error(`AI Generation Blocked${formatChatBlockedDetails(first)}`);
     }
 
@@ -1058,7 +1046,6 @@ export const continueStory = async (params: {
 
   const rawText = getChatContent(response);
   if (!rawText || rawText.trim().length === 0) {
-    maybeLogBlockedResponse(response);
     throw new Error(`AI Generation Blocked${formatChatBlockedDetails(response)}`);
   }
 

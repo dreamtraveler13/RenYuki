@@ -183,9 +183,6 @@ export const fileToBase64 = (file: File): Promise<string> => {
   return compressImageFile(file, MAX_UPLOAD_BYTES);
 };
 
-export const decodeFileAudio = async (arrayBuffer: ArrayBuffer, audioContext: AudioContext): Promise<AudioBuffer> =>
-  audioContext.decodeAudioData(arrayBuffer);
-
 export const generateGameScript = async (
   protagonistName: string,
   heroineName: string,
@@ -214,7 +211,7 @@ export const continueGameScript = async (payload: {
   });
 };
 
-export const generateImage = async (prompt: string, _authKey?: string): Promise<string> => {
+export const generateImage = async (prompt: string): Promise<string> => {
   return await withRetry('generate-image', async () => {
     const data = await requestJson<{ imageUrl: string }>('/api/generate-image', {
       method: 'POST',
@@ -229,7 +226,6 @@ export const generateProtagonistSprite = async (
   emotion: string,
   userPhotoBase64?: string,
   referenceImageBase64?: string,
-  _authKey?: string,
   mimeType: string = 'image/jpeg'
 ): Promise<string> => {
   return await withRetry('generate-protagonist', async () => {
@@ -246,32 +242,12 @@ export const generateHeroineSprite = async (
   emotion: string,
   referenceImageBase64?: string,
   userPhotoBase64?: string,
-  _authKey?: string,
   mimeType: string = 'image/jpeg'
 ): Promise<string> => {
   return await withRetry('generate-heroine', async () => {
     const data = await requestJson<{ imageUrl: string }>('/api/generate-heroine', {
       method: 'POST',
       body: JSON.stringify({ emotion, referenceImageBase64, userPhotoBase64, mimeType }),
-    });
-    if (!data?.imageUrl) throw new Error('No imageUrl returned');
-    return await downloadImageUrlToBase64(data.imageUrl);
-  });
-};
-
-export const generateMemoryCover = async (
-  payload: {
-    heroineName: string;
-    protagonistName: string;
-    scenePrompt?: string;
-    affinity?: number;
-  },
-  _authKey?: string
-): Promise<string> => {
-  return await withRetry('generate-memory-cover', async () => {
-    const data = await requestJson<{ imageUrl: string }>('/api/generate-memory-cover', {
-      method: 'POST',
-      body: JSON.stringify(payload),
     });
     if (!data?.imageUrl) throw new Error('No imageUrl returned');
     return await downloadImageUrlToBase64(data.imageUrl);

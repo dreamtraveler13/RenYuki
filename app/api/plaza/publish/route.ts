@@ -15,7 +15,6 @@ export async function POST(req: NextRequest) {
     assets: {
       ...(save.assets || {}),
       music: {},
-      voice: {},
     },
   };
 

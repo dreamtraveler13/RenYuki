@@ -27,7 +27,6 @@ interface Props {
   onExit: () => void;
   onGameEnd?: () => void;
   isTouchDevice: boolean;
-  authKey: string;
   enableContinue?: boolean;
 }
 
@@ -1007,7 +1006,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
 
       {/* Choices Overlay (Z-60) */}
       {currentNode.choices && !isUserChoiceNode && (
-        <div className="absolute inset-0 z-[60] bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in">
+        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center p-4 animate-fade-in">
            <div className={`w-full max-w-xl space-y-2 ${d('lg:space-y-4')}`}>
              <div className={`text-[10px] ${d('lg:text-xs')} font-mono-tech text-white/80 mb-1 ${d('lg:mb-2')} uppercase text-center tracking-widest`}>需要选择</div>
              {currentNode.choices.map((choice, idx) => (
@@ -1025,7 +1024,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
 
       {/* User-built Choice Overlay (Z-60) */}
       {isUserChoiceNode && (
-        <div className="absolute inset-0 z-[60] bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in">
+        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center p-4 animate-fade-in">
           <div className={`w-full max-w-xl space-y-2 ${d('lg:space-y-4')}`}>
             <div className={`text-[10px] ${d('lg:text-xs')} font-mono-tech text-white/80 mb-1 ${d('lg:mb-2')} uppercase text-center tracking-widest`}>
               需要选择
