@@ -680,16 +680,37 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
 
     let canceled = false;
 
-    const toDataUrl = (base64: string) =>
-      base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
+    const toDataUrl = (base64: string) => {
+      const trimmed = typeof base64 === 'string' ? base64.trim() : '';
+      if (!trimmed) return '';
+      if (trimmed.startsWith('data:')) return trimmed;
+      if (trimmed.startsWith('/9j')) return `data:image/jpeg;base64,${trimmed}`;
+      if (trimmed.startsWith('iVBORw0')) return `data:image/png;base64,${trimmed}`;
+      return `data:image/png;base64,${trimmed}`;
+    };
 
-    const loadImage = (src: string) =>
+    const loadImage = (src: string, timeoutMs = 12_000) =>
       new Promise<HTMLImageElement>((resolve, reject) => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = toDataUrl(src);
+        const timer = window.setTimeout(() => {
+          reject(new Error('image load timeout'));
+        }, timeoutMs);
+        img.onload = () => {
+          window.clearTimeout(timer);
+          resolve(img);
+        };
+        img.onerror = () => {
+          window.clearTimeout(timer);
+          reject(new Error('image load failed'));
+        };
+        const dataUrl = toDataUrl(src);
+        if (!dataUrl) {
+          window.clearTimeout(timer);
+          reject(new Error('empty image data'));
+          return;
+        }
+        img.src = dataUrl;
       });
 
     const pickHeroineSprite = () =>

@@ -798,6 +798,76 @@ const prefixNodeIds = (nodes: Record<string, StoryNode>) => {
   return out;
 };
 
+export type BackgroundScene = {
+  name: string;
+  prompt: string;
+};
+
+const sanitizeBackgroundScenes = (raw: any): BackgroundScene[] => {
+  const asArray: any[] = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? (raw.scenes ?? raw.backgrounds ?? raw.items ?? []) : [];
+  const items: BackgroundScene[] = asArray
+    .map((item) => {
+      if (typeof item === 'string') {
+        const name = item.trim();
+        return name ? { name, prompt: name } : null;
+      }
+      if (!item || typeof item !== 'object') return null;
+      const name = typeof item.name === 'string' ? item.name.trim() : typeof item.title === 'string' ? item.title.trim() : '';
+      const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : typeof item.description === 'string' ? item.description.trim() : '';
+      if (!name) return null;
+      return { name, prompt: prompt || name };
+    })
+    .filter(Boolean) as BackgroundScene[];
+
+  const seen = new Set<string>();
+  const deduped: BackgroundScene[] = [];
+  for (const scene of items) {
+    const key = scene.name;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(scene);
+    if (deduped.length >= 3) break;
+  }
+  return deduped;
+};
+
+export const inferBackgroundScenes = async (plotDescription: string): Promise<BackgroundScene[]> => {
+  const userScene = typeof plotDescription === 'string' ? plotDescription.trim() : '';
+  const prompt = `
+    You are a Japanese school romance visual novel (Galgame) director.
+    TASK: Infer the most likely BACKGROUND SCENES that will appear in the story based on the user's scene description.
+
+    RULES (STRICT):
+    - Output 1 to 3 scenes ONLY. Do NOT exceed 3.
+    - Each scene must have:
+      - "name": short Chinese scene name, e.g. "校园", "小卖部", "天台", "走廊".
+      - "prompt": a background prompt describing location + time-of-day + atmosphere, WITHOUT characters, WITHOUT text/UI, WITHOUT watermark.
+    - Prefer Japanese high school romance settings.
+    - Avoid overly abstract prompts. Keep them usable for background generation.
+
+    USER SCENE DESCRIPTION:
+    "${userScene || '（空）'}"
+
+    OUTPUT FORMAT (RAW JSON ONLY):
+    {"scenes":[{"name":"校园","prompt":"Japanese high school campus walkway after school, warm sunset, no characters, no text"}]}
+  `;
+
+  const response = await lingyaChatCompletion({
+    messages: buildChatMessages(prompt),
+    temperature: 0.2,
+    max_tokens: 1024,
+  });
+  const rawText = getChatContent(response);
+  if (!rawText || rawText.trim().length === 0) {
+    throw new Error(`AI Generation Blocked${formatChatBlockedDetails(response)}`);
+  }
+
+  const raw = extractJSON(rawText);
+  const scenes = sanitizeBackgroundScenes(raw);
+  if (scenes.length === 0) throw new Error('场景推测失败：模型未返回可用场景');
+  return scenes;
+};
+
 export const generateScriptRaw = async (
   protagonistName: string,
   heroineName?: string,
@@ -878,9 +948,28 @@ export const generateScriptRaw = async (
   return rawText;
 };
 
-export const generateScript = async (protagonistName: string, heroineName?: string, plotDescription?: string): Promise<GameScript> => {
+export const generateScript = async (
+  protagonistName: string,
+  heroineName?: string,
+  plotDescription?: string,
+  opts?: { backgroundScenes?: BackgroundScene[] }
+): Promise<GameScript> => {
   const targetHeroine = heroineName ? heroineName.trim() : 'Yuki';
   const customPlot = plotDescription ? `Specific Situation: "${plotDescription}"` : 'A fateful encounter at school.';
+  const backgroundScenes = sanitizeBackgroundScenes(opts?.backgroundScenes || []);
+  const allowedBackgroundNames = backgroundScenes.map((s) => s.name);
+  const backgroundGuide =
+    backgroundScenes.length > 0
+      ? `
+
+    AVAILABLE BACKGROUNDS (MUST choose from this list ONLY):
+    ${backgroundScenes.map((s) => `- ${s.name}: ${s.prompt}`).join('\n')}
+
+    IMPORTANT:
+    - For each node.backgroundPrompt, output EXACTLY one of the scene NAMES from the list above (e.g. "${backgroundScenes[0].name}").
+    - Do NOT invent new background names.
+  `
+      : '';
   const prompt = `
     You are the LEAD SCENARIO WRITER for a Japanese school romance visual novel (Galgame), like Senren * Banka (千恋＊万花).
     MISSION: Create a DEEP, immersive, and emotionally intense scene.
@@ -894,6 +983,7 @@ export const generateScript = async (protagonistName: string, heroineName?: stri
     2. ${targetHeroine} (Heroine): The main love interest. Deeply cares about ${protagonistName}.
 
     PLOT: ${customPlot}
+    ${backgroundGuide}
 
     DIALOGUE STYLE (VERY IMPORTANT):
     - The Heroine must sound like a shy anime girl in a real galgame: flustered, sweet, cute.
@@ -1012,7 +1102,10 @@ export const generateScript = async (protagonistName: string, heroineName?: stri
 
     let rawData = extractJSON(rawText);
 
-    const { nodes, startNodeId } = normalizeNodes(rawData);
+    const { nodes, startNodeId } = normalizeNodes(
+      rawData,
+      allowedBackgroundNames.length > 0 ? { allowedBackgroundPrompts: allowedBackgroundNames } : undefined
+    );
 
     return {
       title: typeof rawData.title === 'string' && rawData.title.trim().length > 0 ? rawData.title.trim() : 'RenYuki Story',

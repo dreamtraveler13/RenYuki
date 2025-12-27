@@ -187,13 +187,32 @@ export const generateGameScript = async (
   protagonistName: string,
   heroineName: string,
   plotDescription: string,
-  maxMode: boolean = false
+  maxMode: boolean = false,
+  backgroundScenes?: Array<{ name: string; prompt: string }>
 ): Promise<GameScript> => {
   return await withRetry('generate-script', async () => {
     return await requestJson<GameScript>('/api/generate-script', {
       method: 'POST',
-      body: JSON.stringify({ protagonistName, heroineName, plotDescription, maxMode }),
+      body: JSON.stringify({
+        protagonistName,
+        heroineName,
+        plotDescription,
+        maxMode,
+        ...(Array.isArray(backgroundScenes) && backgroundScenes.length > 0 ? { backgroundScenes } : {}),
+      }),
     });
+  });
+};
+
+export const inferScenes = async (plotDescription: string): Promise<Array<{ name: string; prompt: string }>> => {
+  return await withRetry('infer-scenes', async () => {
+    const data = await requestJson<{ scenes: Array<{ name: string; prompt: string }> }>('/api/infer-scenes', {
+      method: 'POST',
+      body: JSON.stringify({ plotDescription }),
+    });
+    const scenes = Array.isArray(data?.scenes) ? data.scenes : [];
+    if (scenes.length === 0) throw new Error('场景推测失败，请换个更具体的场景描述重试');
+    return scenes;
   });
 };
 

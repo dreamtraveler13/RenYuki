@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   const userId = getUserIdFromRequest(req);
   if (!userId) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
-  const { protagonistName, heroineName, plotDescription, maxMode } = await req.json();
+  const { protagonistName, heroineName, plotDescription, maxMode, backgroundScenes } = await req.json();
   if (!protagonistName) return NextResponse.json({ error: 'protagonistName is required' }, { status: 400 });
 
   const acceptRes = await enforcePolicyAccepted({ userId });
@@ -36,7 +36,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { result, debug } = await withAiDebug(() => generateScript(protagonistName, heroineName, plotDescription));
+    const scenes = Array.isArray(backgroundScenes)
+      ? backgroundScenes
+          .filter((s: any) => s && typeof s === 'object')
+          .map((s: any) => ({
+            name: typeof s.name === 'string' ? s.name : typeof s.title === 'string' ? s.title : '',
+            prompt: typeof s.prompt === 'string' ? s.prompt : typeof s.description === 'string' ? s.description : '',
+          }))
+          .filter((s: any) => typeof s.name === 'string' && s.name.trim().length > 0)
+          .slice(0, 3)
+      : [];
+    const { result, debug } = await withAiDebug(() =>
+      generateScript(
+        protagonistName,
+        heroineName,
+        plotDescription,
+        scenes.length > 0 ? { backgroundScenes: scenes } : undefined
+      )
+    );
     return NextResponse.json(debug ? { ...result, debug } : result);
   } catch (err: any) {
     console.error('generate-script failed', err);

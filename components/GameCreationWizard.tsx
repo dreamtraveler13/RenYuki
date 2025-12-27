@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CharacterImages, GameScript, GeneratedAssets, UserProfile } from '../types';
 import Button from './Button';
-import { fileToBase64, generateGameScript, generateImage, generateProtagonistSprite, generateHeroineSprite } from '../services/aiService';
+import { fileToBase64, generateGameScript, generateImage, generateProtagonistSprite, generateHeroineSprite, inferScenes } from '../services/aiService';
 import { policyAccept, policyStatus, walletBalance } from '../services/accountService';
 import { saveGame } from '../services/storageService';
 
@@ -560,9 +560,70 @@ const GameCreationWizard: React.FC<Props> = ({ onGameReady, onCoinsUpdated, onNe
     try {
       const targetHeroine = heroineName.trim() || "Unit-01";
 
-      // 1) Start core tasks in parallel (script + sprites)
-      if (mountedRef.current) setLoadingStatus('正在生成剧本');
-      const scriptPromise = generateGameScript(userName, targetHeroine, plotDescription, maxMode);
+      // 1) Start sprites + scene inference in parallel
+      const scenePromise = (async () => {
+        if (mountedRef.current) setLoadingStatus('正在推测场景');
+        const scenes = await inferScenes(plotDescription || '');
+        const cleaned = Array.isArray(scenes)
+          ? scenes
+              .filter((s) => s && typeof s === 'object')
+              .map((s) => ({
+                name: typeof (s as any).name === 'string' ? (s as any).name.trim() : '',
+                prompt: typeof (s as any).prompt === 'string' ? (s as any).prompt.trim() : '',
+              }))
+              .filter((s) => s.name.length > 0)
+              .slice(0, 3)
+          : [];
+
+        const seen = new Set<string>();
+        const deduped = cleaned.filter((s) => {
+          if (seen.has(s.name)) return false;
+          seen.add(s.name);
+          return true;
+        });
+        const out = deduped.map((s) => ({ name: s.name, prompt: s.prompt || s.name }));
+        if (out.length === 0) {
+          throw new Error('场景推测失败，请换个更具体的场景描述重试');
+        }
+        return out;
+      })();
+
+      const scriptPromise = (async () => {
+        const scenes = await scenePromise;
+        if (mountedRef.current) setLoadingStatus('正在生成剧本');
+        return await generateGameScript(
+          userName,
+          targetHeroine,
+          plotDescription,
+          maxMode,
+          scenes.length > 0 ? scenes : undefined
+        );
+      })();
+
+      const backgroundsPromise = (async () => {
+        const scenes = await scenePromise;
+        const backgrounds: Record<string, string> = {};
+        let bgDone = 0;
+        if (mountedRef.current) setLoadingStatus(`正在生成背景（${bgDone}/${scenes.length}）`);
+
+        const results = await Promise.all(
+          scenes.map(async (scene) => {
+            try {
+              const img = await generateImage(scene.prompt || scene.name);
+              return { key: scene.name, img };
+            } finally {
+              bgDone += 1;
+              if (mountedRef.current) setLoadingStatus(`正在生成背景（${bgDone}/${scenes.length}）`);
+            }
+          })
+        );
+
+        results.forEach((r) => {
+          if (r?.key && r?.img) backgrounds[r.key] = r.img;
+        });
+
+        return backgrounds;
+      })();
 
       const protagonistPromise: Promise<CharacterImages> = (async () => {
         if (mountedRef.current) setLoadingStatus('正在生成主角立绘');
@@ -649,36 +710,6 @@ const GameCreationWizard: React.FC<Props> = ({ onGameReady, onCoinsUpdated, onNe
         const coins = await walletBalance();
         onCoinsUpdated?.(coins);
       } catch {}
-
-      // 2) Backgrounds (depend on script) - full parallel
-      const backgroundsPromise = (async () => {
-        const backgrounds: Record<string, string> = {};
-        const uniqueBgPrompts = Array.from(
-          new Set(Object.values(script.nodes).map(n => n.backgroundPrompt).filter(Boolean) as string[])
-        );
-        if (uniqueBgPrompts.length === 0) uniqueBgPrompts.push("Modern minimalist classroom, high contrast, clean, anime style");
-
-        let bgDone = 0;
-        if (mountedRef.current) setLoadingStatus(`正在生成背景（${bgDone}/${uniqueBgPrompts.length}）`);
-
-        const results = await Promise.all(
-          uniqueBgPrompts.filter(Boolean).map(async (prompt) => {
-            try {
-              const img = await generateImage(prompt);
-              return { prompt, img };
-            } finally {
-              bgDone += 1;
-              if (mountedRef.current) setLoadingStatus(`正在生成背景（${bgDone}/${uniqueBgPrompts.length}）`);
-            }
-          })
-        );
-
-        results.forEach((r) => {
-          if (r?.prompt && r?.img) backgrounds[r.prompt] = r.img;
-        });
-
-        return backgrounds;
-      })();
 
       // 3) Wait sprites, then cutout (dedupe), while backgrounds are still generating
       const [protagonistAssetsRaw, heroineAssetsRaw] = await Promise.all([protagonistPromise, heroinePromise]);

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserIdFromRequest } from '@/lib/authSession';
 import { publishPlazaGame } from '@/lib/plazaStore';
 
+export const runtime = 'nodejs';
+
 export async function POST(req: NextRequest) {
   const userId = getUserIdFromRequest(req);
   if (!userId) return NextResponse.json({ error: '未登录' }, { status: 401 });
