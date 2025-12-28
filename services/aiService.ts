@@ -216,20 +216,6 @@ export const inferScenes = async (plotDescription: string): Promise<Array<{ name
   });
 };
 
-export const continueGameScript = async (payload: {
-  protagonistName: string;
-  heroineName: string;
-  userChoiceText: string;
-  affinity?: number;
-  allowedBackgroundPrompts: string[];
-  recentDialogue: Array<{ speaker: string; textCN: string }>;
-}): Promise<{ nodes: Record<string, any>; startNodeId: string; affinityDelta: number; ending: boolean }> => {
-  return await requestJson<{ nodes: Record<string, any>; startNodeId: string; affinityDelta: number; ending: boolean }>('/api/continue-script', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-};
-
 export const generateImage = async (prompt: string): Promise<string> => {
   return await withRetry('generate-image', async () => {
     const data = await requestJson<{ imageUrl: string }>('/api/generate-image', {
@@ -268,6 +254,9 @@ export const generateProtagonistSprite = async (
   referenceImageBase64?: string,
   mimeType: string = 'image/jpeg'
 ): Promise<string> => {
+  if (!userPhotoBase64 && !referenceImageBase64) {
+    throw new Error('需要上传照片作为参考');
+  }
   return await withRetry('generate-protagonist', async () => {
     const data = await requestJson<{ imageUrl: string }>('/api/generate-protagonist', {
       method: 'POST',
@@ -284,6 +273,9 @@ export const generateHeroineSprite = async (
   userPhotoBase64?: string,
   mimeType: string = 'image/jpeg'
 ): Promise<string> => {
+  if (!userPhotoBase64 && !referenceImageBase64) {
+    throw new Error('需要上传照片作为参考');
+  }
   return await withRetry('generate-heroine', async () => {
     const data = await requestJson<{ imageUrl: string }>('/api/generate-heroine', {
       method: 'POST',
@@ -291,5 +283,16 @@ export const generateHeroineSprite = async (
     });
     if (!data?.imageUrl) throw new Error('No imageUrl returned');
     return await downloadImageUrlToBase64(data.imageUrl);
+  });
+};
+
+export const generateHeroineVoice = async (text: string): Promise<string> => {
+  return await withRetry('tts-heroine', async () => {
+    const data = await requestJson<{ audioDataUrl: string; mimeType?: string }>('/api/tts', {
+      method: 'POST',
+      body: JSON.stringify({ text, voice: 'Cherry', languageType: 'Japanese' }),
+    });
+    if (!data?.audioDataUrl) throw new Error('No audioDataUrl returned');
+    return data.audioDataUrl;
   });
 };

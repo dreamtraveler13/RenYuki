@@ -6,6 +6,7 @@ import Button from './Button';
 import PolicyModal from './PolicyModal';
 import { createProfile, deleteProfile, listProfiles, publishProfile } from '../services/profileService';
 import { fileToBase64, generateHeroineSprite, generateProtagonistSprite } from '../services/aiService';
+import { removeBackground } from '../services/imageCutout';
 import { policyAccept, policyStatus } from '../services/accountService';
 
 interface Props {
@@ -13,90 +14,6 @@ interface Props {
   onClose: () => void;
   onProfilesUpdated?: () => void;
 }
-
-const removeBackground = async (base64Data: string): Promise<string> => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const trimmed = typeof base64Data === 'string' ? base64Data.trim() : '';
-    const src = trimmed.startsWith('data:')
-      ? trimmed
-      : trimmed.startsWith('/9j')
-        ? `data:image/jpeg;base64,${trimmed}`
-        : `data:image/png;base64,${trimmed}`;
-    img.src = src;
-    img.crossOrigin = 'Anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve(base64Data);
-        return;
-      }
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-      const width = canvas.width;
-      const height = canvas.height;
-
-      const visited = new Uint8Array(width * height);
-      const stack: number[] = [];
-
-      const START_THRESHOLD = 240;
-      const FILL_THRESHOLD = 240;
-      const getBrightness = (idx: number) => (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
-      const isBackgroundCandidate = (idx: number) => {
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        return r > FILL_THRESHOLD && g > FILL_THRESHOLD && b > FILL_THRESHOLD;
-      };
-
-      const corners = [0, width - 1, (height - 1) * width, width * height - 1];
-      for (const idx of corners) {
-        if (getBrightness(idx * 4) > START_THRESHOLD) {
-          stack.push(idx);
-          visited[idx] = 1;
-        }
-      }
-
-      while (stack.length > 0) {
-        const idx = stack.pop()!;
-        const x = idx % width;
-        const y = Math.floor(idx / width);
-        const neighbors = [];
-        if (x > 0) neighbors.push(idx - 1);
-        if (x < width - 1) neighbors.push(idx + 1);
-        if (y > 0) neighbors.push(idx - width);
-        if (y < height - 1) neighbors.push(idx + width);
-        for (const nIdx of neighbors) {
-          if (visited[nIdx] === 0) {
-            const pixelIdx = nIdx * 4;
-            if (isBackgroundCandidate(pixelIdx)) {
-              visited[nIdx] = 1;
-              stack.push(nIdx);
-            } else {
-              visited[nIdx] = 2;
-            }
-          }
-        }
-      }
-
-      for (let i = 0; i < width * height; i += 1) {
-        const pixelIdx = i * 4;
-        if (visited[i] === 1) {
-          data[pixelIdx + 3] = 0;
-        }
-      }
-
-      ctx.putImageData(imageData, 0, 0);
-      const newBase64 = canvas.toDataURL('image/png').split(',')[1];
-      resolve(newBase64);
-    };
-    img.onerror = () => resolve(base64Data);
-  });
-};
 
 const normalizeProfileImages = (images: CharacterImages): CharacterImages => {
   const normal = images.normal;
@@ -192,6 +109,10 @@ const CharacterArchiveModal: React.FC<Props> = ({ open, onClose, onProfilesUpdat
       setErrorMessage('请先填写角色名字');
       return;
     }
+    if (!photoBase64) {
+      setErrorMessage('请先上传角色照片');
+      return;
+    }
 
     const policyOk = await ensurePolicyAccepted();
     if (!policyOk) {
@@ -206,74 +127,39 @@ const CharacterArchiveModal: React.FC<Props> = ({ open, onClose, onProfilesUpdat
     try {
       let images: CharacterImages;
       if (activeRole === 'protagonist') {
-        if (photoBase64) {
-          if (maxMode) {
-            const [normal, happy, surprised, angry] = await Promise.all([
-              generateProtagonistSprite('confident smile', photoBase64, undefined, photoMimeType),
-              generateProtagonistSprite('bright happy smile', photoBase64, undefined, photoMimeType),
-              generateProtagonistSprite('surprised, jaw drop, shock', photoBase64, undefined, photoMimeType),
-              generateProtagonistSprite('annoyed, angry, slightly frowning', photoBase64, undefined, photoMimeType),
-            ]);
-            images = { normal, happy, surprised, angry, shy: happy };
-          } else {
-            const [normal, surprised] = await Promise.all([
-              generateProtagonistSprite('confident smile', photoBase64, undefined, photoMimeType),
-              generateProtagonistSprite('surprised, jaw drop, shock', photoBase64, undefined, photoMimeType),
-            ]);
-            images = { normal, happy: normal, surprised, angry: surprised, shy: normal };
-          }
+        if (maxMode) {
+          const [normal, happy, surprised, angry] = await Promise.all([
+            generateProtagonistSprite('confident smile', photoBase64, undefined, photoMimeType),
+            generateProtagonistSprite('bright happy smile', photoBase64, undefined, photoMimeType),
+            generateProtagonistSprite('surprised, jaw drop, shock', photoBase64, undefined, photoMimeType),
+            generateProtagonistSprite('annoyed, angry, slightly frowning', photoBase64, undefined, photoMimeType),
+          ]);
+          images = { normal, happy, surprised, angry, shy: happy };
         } else {
-          const normal = await generateProtagonistSprite('confident smile', undefined, undefined);
-          if (maxMode) {
-            const [happy, surprised, angry] = await Promise.all([
-              generateProtagonistSprite('bright happy smile', undefined, normal),
-              generateProtagonistSprite('surprised, jaw drop, shock', undefined, normal),
-              generateProtagonistSprite('annoyed, angry, slightly frowning', undefined, normal),
-            ]);
-            images = { normal, happy, surprised, angry, shy: happy };
-          } else {
-            const surprised = await generateProtagonistSprite('surprised, jaw drop, shock', undefined, normal);
-            images = { normal, happy: normal, surprised, angry: surprised, shy: normal };
-          }
+          const [normal, surprised] = await Promise.all([
+            generateProtagonistSprite('confident smile', photoBase64, undefined, photoMimeType),
+            generateProtagonistSprite('surprised, jaw drop, shock', photoBase64, undefined, photoMimeType),
+          ]);
+          images = { normal, happy: normal, surprised, angry: surprised, shy: normal };
         }
       } else {
-        if (photoBase64) {
-          if (maxMode) {
-            const [normal, happy, shy, surprised, angry, sad] = await Promise.all([
-              generateHeroineSprite('gentle smile', undefined, photoBase64, photoMimeType),
-              generateHeroineSprite('laughing happily', undefined, photoBase64, photoMimeType),
-              generateHeroineSprite('blushing shy', undefined, photoBase64, photoMimeType),
-              generateHeroineSprite('surprised, wide eyes, slight gasp', undefined, photoBase64, photoMimeType),
-              generateHeroineSprite('pouting, angry, cheeks slightly puffed', undefined, photoBase64, photoMimeType),
-              generateHeroineSprite('sad, watery eyes, holding back tears', undefined, photoBase64, photoMimeType),
-            ]);
-            images = { normal, happy, shy, surprised, angry, sad };
-          } else {
-            const [normal, happy, shy] = await Promise.all([
-              generateHeroineSprite('gentle smile', undefined, photoBase64, photoMimeType),
-              generateHeroineSprite('laughing happily', undefined, photoBase64, photoMimeType),
-              generateHeroineSprite('blushing shy', undefined, photoBase64, photoMimeType),
-            ]);
-            images = { normal, happy, shy, surprised: normal, angry: normal };
-          }
+        if (maxMode) {
+          const [normal, happy, shy, surprised, angry, sad] = await Promise.all([
+            generateHeroineSprite('gentle smile', undefined, photoBase64, photoMimeType),
+            generateHeroineSprite('laughing happily', undefined, photoBase64, photoMimeType),
+            generateHeroineSprite('blushing shy', undefined, photoBase64, photoMimeType),
+            generateHeroineSprite('surprised, wide eyes, slight gasp', undefined, photoBase64, photoMimeType),
+            generateHeroineSprite('pouting, angry, cheeks slightly puffed', undefined, photoBase64, photoMimeType),
+            generateHeroineSprite('sad, watery eyes, holding back tears', undefined, photoBase64, photoMimeType),
+          ]);
+          images = { normal, happy, shy, surprised, angry, sad };
         } else {
-          const normal = await generateHeroineSprite('gentle smile', undefined, undefined);
-          if (maxMode) {
-            const [happy, shy, surprised, angry, sad] = await Promise.all([
-              generateHeroineSprite('laughing happily', normal, undefined),
-              generateHeroineSprite('blushing shy', normal, undefined),
-              generateHeroineSprite('surprised, wide eyes, slight gasp', normal, undefined),
-              generateHeroineSprite('pouting, angry, cheeks slightly puffed', normal, undefined),
-              generateHeroineSprite('sad, watery eyes, holding back tears', normal, undefined),
-            ]);
-            images = { normal, happy, shy, surprised, angry, sad };
-          } else {
-            const [happy, shy] = await Promise.all([
-              generateHeroineSprite('laughing happily', normal, undefined),
-              generateHeroineSprite('blushing shy', normal, undefined),
-            ]);
-            images = { normal, happy, shy, surprised: normal, angry: normal };
-          }
+          const [normal, happy, shy] = await Promise.all([
+            generateHeroineSprite('gentle smile', undefined, photoBase64, photoMimeType),
+            generateHeroineSprite('laughing happily', undefined, photoBase64, photoMimeType),
+            generateHeroineSprite('blushing shy', undefined, photoBase64, photoMimeType),
+          ]);
+          images = { normal, happy, shy, surprised: normal, angry: normal };
         }
       }
 
@@ -442,7 +328,7 @@ const CharacterArchiveModal: React.FC<Props> = ({ open, onClose, onProfilesUpdat
               </div>
 
               <div>
-                <label className="block text-[9px] font-mono-tech text-gray-400 mb-2 uppercase tracking-wider">源图片</label>
+                <label className="block text-[9px] font-mono-tech text-gray-400 mb-2 uppercase tracking-wider">源图片（必填）</label>
                 <div className="border border-dashed border-gray-300 hover:border-black transition-all cursor-pointer relative h-32 md:h-40 flex items-center justify-center bg-gray-50 hover:bg-white group">
                   <input type="file" accept="image/*" onChange={handleUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                   {photoBase64 ? (
@@ -450,7 +336,7 @@ const CharacterArchiveModal: React.FC<Props> = ({ open, onClose, onProfilesUpdat
                   ) : (
                     <div className="text-center group-hover:scale-105 transition-transform">
                       <div className="text-xs font-bold text-gray-900 uppercase tracking-widest border border-black px-2 py-1 inline-block">上传</div>
-                      <div className="text-[9px] font-mono-tech text-gray-400 mt-2">可选视觉数据</div>
+                      <div className="text-[9px] font-mono-tech text-gray-400 mt-2">必须上传</div>
                     </div>
                   )}
                 </div>
@@ -465,7 +351,7 @@ const CharacterArchiveModal: React.FC<Props> = ({ open, onClose, onProfilesUpdat
                     <span className="text-xs font-bold uppercase">MAX 表情</span>
                  </label>
                  
-                 <Button onClick={createRoleProfile} disabled={generating} className="flex-1">
+                 <Button onClick={createRoleProfile} disabled={generating || !photoBase64} className="flex-1">
                     {generating ? '处理中...' : '生成'}
                  </Button>
               </div>

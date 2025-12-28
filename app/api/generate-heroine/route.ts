@@ -9,6 +9,9 @@ export async function POST(req: NextRequest) {
 
   const { emotion, referenceImageBase64, userPhotoBase64, mimeType = 'image/jpeg' } = await req.json();
   if (!emotion) return NextResponse.json({ error: 'emotion is required' }, { status: 400 });
+  if (!userPhotoBase64 && !referenceImageBase64) {
+    return NextResponse.json({ error: '必须上传照片或提供参考图' }, { status: 400 });
+  }
   const acceptRes = await enforcePolicyAccepted({ userId });
   if (acceptRes) return acceptRes;
   const policyRes = await enforceNoCnPoliticalSensitive({ userId, inputs: [emotion] });

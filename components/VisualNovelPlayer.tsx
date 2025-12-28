@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { GameScript, GeneratedAssets, SpeakerType, Choice, StoryNode, UserProfile, SaveFile } from '../types';
 import Button from './Button';
 import Typewriter from './Typewriter';
 import { saveGame } from '../services/storageService';
 import { publishPlazaGame } from '../services/plazaService';
+import { generateHeroineVoice } from '../services/aiService';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const AUDIO_LIBRARY: Record<string, string> = {
@@ -50,6 +51,65 @@ const decodeUrlAudio = async (url: string, audioContext: AudioContext): Promise<
   return await audioContext.decodeAudioData(buf);
 };
 
+const CrossfadeImage = ({ src, alt, className, style }: { src: string, alt: string, className: string, style?: React.CSSProperties }) => {
+  const [prevSrc, setPrevSrc] = useState<string | null>(null);
+  const [currentSrc, setCurrentSrc] = useState(src);
+  
+  if (src !== currentSrc) {
+    setPrevSrc(currentSrc);
+    setCurrentSrc(src);
+  }
+
+  useEffect(() => {
+    if (prevSrc) {
+      const timer = setTimeout(() => {
+        setPrevSrc(null);
+      }, 500); // 0.5s overlap
+      return () => clearTimeout(timer);
+    }
+  }, [prevSrc]);
+
+  return (
+    <div className={`grid grid-cols-1 grid-rows-1 ${className}`} style={style}>
+      {prevSrc && (
+        <img 
+          key={prevSrc}
+          src={prevSrc} 
+          alt={alt} 
+          className="col-start-1 row-start-1 w-auto h-full object-contain animate-fade-out-overlap"
+        />
+      )}
+      <img 
+        key={currentSrc}
+        src={currentSrc} 
+        alt={alt} 
+        className={`col-start-1 row-start-1 w-auto h-full object-contain ${prevSrc ? 'animate-fade-in-overlap' : ''}`}
+      />
+      <style jsx>{`
+        .animate-fade-in-overlap {
+          animation: fadeInOverlap 0.35s ease-in-out forwards;
+        }
+        .animate-fade-out-overlap {
+          animation: fadeOutOverlap 0.35s ease-in-out forwards;
+        }
+        @keyframes fadeInOverlap {
+          from { opacity: 0; filter: blur(6px); transform: translateY(6px); }
+          to { opacity: 1; filter: blur(0); transform: translateY(0); }
+        }
+        @keyframes fadeOutOverlap {
+          from { opacity: 1; filter: blur(0); transform: translateY(0); }
+          to { opacity: 0; filter: blur(6px); transform: translateY(6px); }
+        }
+      `}</style>
+    </div>
+  );
+};
+
+const getHeroineVoiceText = (node?: StoryNode) => {
+  if (!node) return '';
+  return (node.textJP || node.textCN || '').trim();
+};
+
 const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initialNodeId, initialAffinity, onExit, onGameEnd, isTouchDevice, enableContinue = true }) => {
   const [runtimeScript, setRuntimeScript] = useState<GameScript>(script);
   const [hasStarted, setHasStarted] = useState(false);
@@ -76,6 +136,11 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const [newOptionText, setNewOptionText] = useState('');
   const [waitingForNodeId, setWaitingForNodeId] = useState<string | null>(null);
   const [continuingChoiceIndex, setContinuingChoiceIndex] = useState<number | null>(null);
+  const [voiceCache, setVoiceCache] = useState<Record<string, string>>(() => assets.voice || {});
+  const voiceCacheRef = useRef<Record<string, string>>(voiceCache);
+  const voiceFetchRef = useRef<Set<string>>(new Set());
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastPlayedVoiceRef = useRef<{ nodeId: string; audioSrc: string } | null>(null);
   const [visitStack, setVisitStack] = useState<Array<{ nodeId: string; affinity: number }>>(() => [
     { nodeId: initialNodeId || script.startNodeId, affinity: initialAffinity || 50 },
   ]);
@@ -108,10 +173,58 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
     setContinueError(null);
     setIsContinuing(false);
     setContinuingChoiceIndex(null);
-  }, [script, initialNodeId, initialAffinity]);
+    setVoiceCache(assets.voice || {});
+    voiceFetchRef.current = new Set();
+  }, [script, initialNodeId, initialAffinity, assets.voice]);
+
+  useEffect(() => {
+    voiceCacheRef.current = voiceCache;
+  }, [voiceCache]);
 
   const currentNode: StoryNode | undefined = runtimeScript.nodes[currentNodeId];
   const isUserChoiceNode = !!currentNode && currentNode.nodeType === 'user_choice';
+  const hasProtagonist = useMemo(() => {
+    const imgs = assets?.protagonist;
+    if (!imgs) return false;
+    return Object.values(imgs).some((v) => typeof v === 'string' && v.trim().length > 0);
+  }, [assets?.protagonist]);
+  const heroineActive = currentNode?.speaker === SpeakerType.HEROINE || !hasProtagonist;
+  const assetsWithVoice = useMemo(() => ({ ...assets, voice: voiceCache }), [assets, voiceCache]);
+
+  const collectUpcomingHeroineNodes = useCallback(
+    (startId: string, count: number) => {
+      const nodes: StoryNode[] = [];
+      let currentId = runtimeScript.nodes[startId]?.nextNodeId || '';
+      const visited = new Set<string>();
+      while (currentId && nodes.length < count && !visited.has(currentId)) {
+        visited.add(currentId);
+        const node = runtimeScript.nodes[currentId];
+        if (!node) break;
+        if (node.speaker === SpeakerType.HEROINE) nodes.push(node);
+        currentId = node.nextNodeId || '';
+      }
+      return nodes;
+    },
+    [runtimeScript]
+  );
+
+  const ensureVoiceForNodes = useCallback(async (nodes: StoryNode[]) => {
+    for (const node of nodes) {
+      const text = getHeroineVoiceText(node);
+      if (!text) continue;
+      if (voiceCacheRef.current[node.id]) continue;
+      if (voiceFetchRef.current.has(node.id)) continue;
+      voiceFetchRef.current.add(node.id);
+      try {
+        const audioDataUrl = await generateHeroineVoice(text);
+        setVoiceCache((prev) => ({ ...prev, [node.id]: audioDataUrl }));
+      } catch (err) {
+        console.warn('heroine tts failed', err);
+      } finally {
+        voiceFetchRef.current.delete(node.id);
+      }
+    }
+  }, []);
 
   // Helper function: If isTouchDevice is true, suppress the desktop (lg:) classes
   // This forces the UI to stay compact even on high-res tablets or phones
@@ -126,6 +239,40 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
       audioContextRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!currentNode) return;
+    const nodesToFetch: StoryNode[] = [];
+    if (currentNode.speaker === SpeakerType.HEROINE) nodesToFetch.push(currentNode);
+    nodesToFetch.push(...collectUpcomingHeroineNodes(currentNode.id, 2));
+    if (nodesToFetch.length > 0) {
+      void ensureVoiceForNodes(nodesToFetch);
+    }
+  }, [currentNode, collectUpcomingHeroineNodes, ensureVoiceForNodes]);
+
+  useEffect(() => {
+    if (!currentNode || currentNode.speaker !== SpeakerType.HEROINE) return;
+    const audioSrc = voiceCache[currentNode.id];
+    if (!audioSrc) return;
+    if (
+      lastPlayedVoiceRef.current &&
+      lastPlayedVoiceRef.current.nodeId === currentNode.id &&
+      lastPlayedVoiceRef.current.audioSrc === audioSrc
+    ) {
+      return;
+    }
+    let audio = voiceAudioRef.current;
+    if (!audio) {
+      audio = new Audio();
+      audio.preload = 'auto';
+      voiceAudioRef.current = audio;
+    }
+    audio.pause();
+    audio.currentTime = 0;
+    audio.src = audioSrc;
+    audio.play().catch(() => {});
+    lastPlayedVoiceRef.current = { nodeId: currentNode.id, audioSrc };
+  }, [currentNode, voiceCache]);
 
   const fullscreenSupported =
     typeof document !== 'undefined' && typeof document.documentElement?.requestFullscreen === 'function';
@@ -357,7 +504,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
     setIsSaving(true);
     try {
       const cover = gameEnded ? endingCover || undefined : undefined;
-      await saveGame(runtimeScript, assets, userProfile, currentNodeId, affinity, cover);
+      await saveGame(runtimeScript, assetsWithVoice, userProfile, currentNodeId, affinity, cover);
       setSaveMessage("保存成功");
     } catch (e) {
       setSaveMessage("保存失败");
@@ -380,7 +527,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
         affinity,
         currentNodeId,
         script: runtimeScript,
-        assets,
+        assets: assetsWithVoice,
         userProfile,
         memoryCoverBase64: endingCover || undefined,
       };
@@ -723,14 +870,12 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
       const bgRaw = currentBackground || Object.values(assets.backgrounds)[0];
       const heroRaw = pickHeroineSprite();
       const protagRaw = pickProtagonistSprite();
-      if (!bgRaw || !heroRaw || !protagRaw) return null;
+      if (!bgRaw || !heroRaw) return null;
 
       try {
-        const [bgImg, heroImg, protagImg] = await Promise.all([
-          loadImage(bgRaw),
-          loadImage(heroRaw),
-          loadImage(protagRaw),
-        ]);
+        const bgImg = await loadImage(bgRaw);
+        const heroImg = await loadImage(heroRaw);
+        const protagImg = protagRaw ? await loadImage(protagRaw) : null;
 
         const canvas = document.createElement('canvas');
         // 4:3 相片比例
@@ -765,15 +910,22 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
         // 角色合成（底部对齐，留出相片边缘的安全区）
         const safeX = canvas.width * 0.10;
 
-        const pHeight = canvas.height * 0.92;
-        const pScale = pHeight / protagImg.height;
-        const pWidth = protagImg.width * pScale;
-        ctx.drawImage(protagImg, safeX, canvas.height - pHeight, pWidth, pHeight);
+        if (protagImg) {
+          const pHeight = canvas.height * 0.92;
+          const pScale = pHeight / protagImg.height;
+          const pWidth = protagImg.width * pScale;
+          ctx.drawImage(protagImg, safeX, canvas.height - pHeight, pWidth, pHeight);
 
-        const hHeight = canvas.height * 0.96;
-        const hScale = hHeight / heroImg.height;
-        const hWidth = heroImg.width * hScale;
-        ctx.drawImage(heroImg, canvas.width - hWidth - safeX, canvas.height - hHeight, hWidth, hHeight);
+          const hHeight = canvas.height * 0.96;
+          const hScale = hHeight / heroImg.height;
+          const hWidth = heroImg.width * hScale;
+          ctx.drawImage(heroImg, canvas.width - hWidth - safeX, canvas.height - hHeight, hWidth, hHeight);
+        } else {
+          const hHeight = canvas.height * 0.96;
+          const hScale = hHeight / heroImg.height;
+          const hWidth = heroImg.width * hScale;
+          ctx.drawImage(heroImg, (canvas.width - hWidth) / 2, canvas.height - hHeight, hWidth, hHeight);
+        }
 
         return canvas.toDataURL('image/png').split(',')[1];
       } catch (e) {
@@ -995,31 +1147,32 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
       <div className={`absolute inset-0 z-10 flex items-end justify-center px-4 ${d('lg:px-20')} pb-0 pointer-events-none`}>
          
 	         {/* Protagonist (Left) */}
-	         <div 
-	           className={`absolute left-[2%] bottom-0 transition-all duration-500 ease-out origin-bottom
-	           ${currentNode.speaker === SpeakerType.PROTAGONIST 
-	             ? 'z-10 scale-100 filter-none' 
-	             : 'z-0 scale-95 opacity-100'}`}
-	         >
-            <img 
-               key={`${currentNode.speaker}-${currentNode.emotion}`}
-               src={`data:image/png;base64,${assets.protagonist[currentNode.emotion as keyof typeof assets.protagonist] || assets.protagonist.normal}`} 
-               className={`h-[78vh] ${d('lg:h-[92vh]')} object-contain drop-shadow-2xl ${currentNode.speaker === SpeakerType.PROTAGONIST ? getSpriteAnimClass(currentNode.emotion) : ''}`}
-               alt="主角"
-            />
-         </div>
+	         {hasProtagonist && (
+	           <div 
+	             className={`absolute left-[2%] bottom-0 transition-all duration-500 ease-out origin-bottom
+	             ${currentNode.speaker === SpeakerType.PROTAGONIST 
+	               ? 'z-10 scale-100 filter-none' 
+	               : 'z-0 scale-95 opacity-100'}`}
+	           >
+              <CrossfadeImage 
+                 src={`data:image/png;base64,${assets.protagonist[currentNode.emotion as keyof typeof assets.protagonist] || assets.protagonist.normal}`} 
+                 className={`h-[78vh] ${d('lg:h-[92vh]')} object-contain drop-shadow-2xl ${currentNode.speaker === SpeakerType.PROTAGONIST ? getSpriteAnimClass(currentNode.emotion) : ''}`}
+                 alt="主角"
+              />
+           </div>
+	         )}
 
 	         {/* Heroine (Right) */}
 	         <div 
-	           className={`absolute right-[2%] bottom-0 transition-all duration-500 ease-out origin-bottom
-	           ${currentNode.speaker === SpeakerType.HEROINE 
+	           className={`absolute bottom-0 transition-all duration-500 ease-out origin-bottom
+	           ${hasProtagonist ? 'right-[2%]' : 'left-1/2 -translate-x-1/2'}
+	           ${heroineActive 
 	             ? 'z-10 scale-100 filter-none' 
 	             : 'z-0 scale-95 opacity-100'}`}
 	         >
-            <img 
-               key={`${currentNode.speaker}-${currentNode.emotion}`}
+            <CrossfadeImage 
                src={`data:image/png;base64,${assets.heroine[currentNode.emotion as keyof typeof assets.heroine] || assets.heroine.normal}`} 
-               className={`h-[88vh] ${d('lg:h-[105vh]')} object-contain drop-shadow-2xl ${currentNode.speaker === SpeakerType.HEROINE ? getSpriteAnimClass(currentNode.emotion) : ''}`}
+               className={`h-[88vh] ${d('lg:h-[105vh]')} object-contain drop-shadow-2xl ${heroineActive ? getSpriteAnimClass(currentNode.emotion) : ''}`}
                alt="女主角"
             />
          </div>
@@ -1043,23 +1196,40 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
         </div>
       )}
 
-      {/* User-built Choice Overlay (Z-60) */}
+      {/* User-built Choice Overlay (Cinematic Style) */}
       {isUserChoiceNode && (
-        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center p-4 animate-fade-in">
-          <div className={`w-full max-w-xl space-y-2 ${d('lg:space-y-4')}`}>
-            <div className={`text-[10px] ${d('lg:text-xs')} font-mono-tech text-white/80 mb-1 ${d('lg:mb-2')} uppercase text-center tracking-widest`}>
-              需要选择
+        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center animate-fade-in">
+          {/* Fullscreen Gradient Backdrop */}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/60 to-black/90 backdrop-blur-[2px]" />
+
+          {/* Cinematic Container */}
+          <div className="relative w-full max-w-4xl px-8 flex flex-col items-center space-y-12 z-10">
+            
+            {/* Elegant Header */}
+            <div className="text-center space-y-2 animate-slide-down">
+               <div className="text-white/60 text-[10px] lg:text-xs font-mono-tech tracking-[0.3em] uppercase">
+                 Decision Point
+               </div>
+               <div className="h-px w-12 bg-white/40 mx-auto" />
+               <h3 className="text-2xl lg:text-4xl font-light text-white tracking-widest drop-shadow-md font-serif italic">
+                 {enableContinue 
+                   ? (currentNode.textCN || '抉择时刻') 
+                   : '剧情节点'}
+               </h3>
+               {enableContinue && (
+                 <p className="text-white/70 text-xs lg:text-sm font-light tracking-wide mt-2">
+                   {currentNode.choices?.length === 0 ? "命运的轨迹在此分叉，请书写你的意志" : "请选择你的回应"}
+                 </p>
+               )}
             </div>
 
-            <div className="bg-white/95 border-2 border-black p-3 lg:p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.5)] space-y-3">
-              <div className="text-xs lg:text-base font-bold text-gray-900">
-                {enableContinue
-                  ? (currentNode.choicePromptCN || '请点击“新建”写出你的回答/行动，马上开始续写。')
-                  : '该嘎拉为分享版本，已关闭“续写”功能。请选择已有选项继续。'}
-              </div>
-
-              {enableContinue && (
-                <div className="flex gap-2">
+            {/* Input Area (Integrated HUD Style) */}
+            {enableContinue && (
+              <div className="w-full max-w-xl relative group animate-fade-in-up delay-100">
+                <div className="relative flex items-center">
+                  <span className="absolute left-0 text-white/50 text-xl font-thin pointer-events-none">
+                    ➤
+                  </span>
                   <input
                     value={newOptionText}
                     onChange={(e) => setNewOptionText(e.target.value)}
@@ -1070,61 +1240,93 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
                       }
                     }}
                     disabled={isContinuing}
-                    placeholder="输入一个选项，比如：我鼓起勇气邀请她放学一起回家。"
-                    className="flex-1 border border-black/30 p-2 lg:p-3 text-sm lg:text-base outline-none focus:ring-2 focus:ring-black/30 bg-white"
+                    autoFocus
+                    placeholder="输入你的回答"
+                    className="w-full bg-transparent border-b border-white/30 py-3 pl-8 pr-16 text-lg lg:text-xl text-white placeholder:text-white/30 focus:border-white focus:outline-none transition-all font-light tracking-wide text-center"
                   />
                   <button
                     onClick={addUserOptionAndStart}
                     disabled={isContinuing || newOptionText.trim().length === 0}
-                    className="bg-black text-white font-bold px-3 lg:px-4 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="absolute right-0 top-1/2 -translate-y-1/2 text-white/60 hover:text-white disabled:opacity-30 transition-colors text-sm font-mono-tech tracking-widest uppercase border border-white/30 px-3 py-1 hover:border-white"
                   >
-                    新建
+                    确认
                   </button>
                 </div>
-              )}
-
-              {continueError && (
-                <div className="text-[10px] lg:text-xs text-red-700 font-mono-tech">
-                  {continueError}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                {(currentNode.choices || []).length === 0 && enableContinue && (
-                  <div className="text-[10px] lg:text-xs text-gray-500 font-mono-tech">
-                    输入一个选项并点“新建”，会立刻流式生成；收到第 1 个节点就自动进入游玩。
-                  </div>
-                )}
-
-                {(currentNode.choices || []).map((choice, idx) => {
-                  const isThisLoading = isContinuing && continuingChoiceIndex === idx;
-                  const canJump = !!choice.nextNodeId && !!runtimeScript.nodes[choice.nextNodeId];
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => handleUserChoiceSelect(choice, idx)}
-                      disabled={isContinuing && !isThisLoading}
-                      className={`w-full flex items-center bg-white hover:bg-black text-black hover:text-white font-bold py-2 px-3 ${d('lg:py-4 lg:px-6')} border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,0.25)] hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,0.35)] transition-all text-left group transform hover:translate-x-1 text-xs ${d('lg:text-base')} disabled:opacity-60 disabled:cursor-not-allowed`}
-                    >
-                      <span className="mr-2 lg:mr-4 font-mono-tech text-gray-400 group-hover:text-white">
-                        0{idx + 1} {'//'}
-                      </span>
-                      <span className="flex-1">{choice.text}</span>
-                      <span className="ml-3 flex items-center gap-2">
-                        {canJump && !isThisLoading && (
-                          <span className="text-[10px] lg:text-xs font-mono-tech text-gray-500 group-hover:text-white/80">
-                            已就绪
-                          </span>
-                        )}
-                        {isThisLoading && (
-                          <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin group-hover:border-white group-hover:border-t-transparent" />
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
+                {/* Decorative underline animation */}
+                <div className="absolute bottom-0 left-0 w-0 h-0.5 bg-white transition-all duration-500 group-focus-within:w-full" />
               </div>
+            )}
+
+            {/* Error Message */}
+            {continueError && (
+              <div className="text-red-400 text-xs font-mono-tech tracking-wider animate-shake">
+                 [ERROR] {continueError}
+              </div>
+            )}
+
+            {/* Floating Choices List */}
+            <div className="w-full max-w-3xl space-y-4 lg:space-y-6 flex flex-col items-center pb-12">
+              {(currentNode.choices || []).map((choice, idx) => {
+                const isThisLoading = isContinuing && continuingChoiceIndex === idx;
+                const canJump = !!choice.nextNodeId && !!runtimeScript.nodes[choice.nextNodeId];
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => handleUserChoiceSelect(choice, idx)}
+                    disabled={isContinuing && !isThisLoading}
+                    className={`
+                      relative group w-full lg:w-[90%] py-4 px-8 
+                      flex items-center justify-center transition-all duration-300 ease-out
+                      ${isThisLoading ? 'opacity-100 scale-105' : 'hover:scale-105 hover:bg-white/10'}
+                    `}
+                  >
+                    {/* Glass Background */}
+                    <div className="absolute inset-0 bg-black/40 border border-white/10 skew-x-[-12deg] group-hover:bg-black/60 group-hover:border-white/40 transition-all duration-300 backdrop-blur-sm shadow-lg" />
+                    
+                    {/* Active/Loading Glow */}
+                    {isThisLoading && (
+                       <div className="absolute inset-0 bg-white/5 border border-white/50 skew-x-[-12deg] animate-pulse" />
+                    )}
+
+                    {/* Content */}
+                    <div className="relative z-10 flex items-center justify-between w-full max-w-2xl px-4">
+                       {/* Number Decorative */}
+                       <span className="font-mono-tech text-xs lg:text-sm text-white/30 group-hover:text-white/80 transition-colors w-8">
+                         0{idx + 1}
+                       </span>
+
+                       {/* Text */}
+                       <span className="flex-1 text-center text-base lg:text-xl text-white/90 font-medium tracking-wide group-hover:text-white drop-shadow-sm group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.5)] transition-all">
+                         {choice.text}
+                       </span>
+
+                       {/* Status/Icon */}
+                       <span className="w-8 flex justify-end">
+                          {isThisLoading ? (
+                            <span className="w-3 h-3 border border-white/60 border-t-transparent rounded-full animate-spin" />
+                          ) : canJump ? (
+                            <span className="text-[10px] text-white/40 font-mono-tech group-hover:text-white/80">SKIP</span>
+                          ) : (
+                             <span className="text-white/0 group-hover:text-white/60 transition-all text-sm transform group-hover:translate-x-1">◆</span>
+                          )}
+                       </span>
+                    </div>
+
+                    {/* Decorative Corner Accents (Top-Left & Bottom-Right) */}
+                    <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-white/0 group-hover:border-white/60 transition-all duration-300 -translate-x-1 -translate-y-1 group-hover:translate-x-0 group-hover:translate-y-0" />
+                    <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-white/0 group-hover:border-white/60 transition-all duration-300 translate-x-1 translate-y-1 group-hover:translate-x-0 group-hover:translate-y-0" />
+                  </button>
+                );
+              })}
+              
+              {/* Empty State Prompt */}
+              {(currentNode.choices || []).length === 0 && enableContinue && (
+                 <div className="text-white/30 text-xs font-light tracking-widest animate-pulse mt-8">
+                    AWAITING PLAYER INPUT...
+                 </div>
+              )}
             </div>
+            
           </div>
         </div>
       )}

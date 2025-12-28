@@ -44,6 +44,7 @@ const defaultSave: SaveFile = {
     protagonist: { normal: '', happy: '', surprised: '', angry: '', shy: '' },
     backgrounds: {},
     music: {},
+    voice: {},
   },
   userProfile: { name: '', avatarBase64: '' },
 };

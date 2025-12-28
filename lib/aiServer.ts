@@ -578,8 +578,6 @@ const normalizeNodes = (
         nodeTypeRaw === 'user_choice' || nodeTypeRaw === 'dialogue' || nodeTypeRaw === 'ending'
           ? (nodeTypeRaw as StoryNode['nodeType'])
           : undefined;
-      const choicePromptCN =
-        typeof node.choicePromptCN === 'string' && node.choicePromptCN.trim().length > 0 ? node.choicePromptCN.trim() : undefined;
 
       let backgroundPrompt =
         typeof node.backgroundPrompt === 'string' && node.backgroundPrompt.trim().length > 0
@@ -640,7 +638,6 @@ const normalizeNodes = (
         choices,
         nextNodeId,
         nodeType,
-        choicePromptCN,
       });
     } catch {
       // 单个节点异常时跳过，避免影响整体可玩性
@@ -701,20 +698,15 @@ const ensureUserChoiceTail = (script: GameScript): GameScript => {
       ...last,
       speaker: SpeakerType.HEROINE,
       textCN: typeof last.textCN === 'string' && last.textCN.trim().length > 0 ? last.textCN : '那……接下来你想怎么做？',
-      textJP: typeof last.textJP === 'string' && last.textJP.trim().length > 0 ? last.textJP : 'じゃあ……これから、どうする？',
+      textJP: typeof last.textJP === 'string' && last.textJP.trim().length > 0 ? last.textJP : 'じゃ阿……これから、どうする？',
       nextNodeId: undefined,
-      choicePromptCN:
-        typeof last.choicePromptCN === 'string' && last.choicePromptCN.trim().length > 0
-          ? last.choicePromptCN
-          : '请点击“新建”写出你的回答/行动，马上开始续写。',
     };
 
     const changed =
       patched.speaker !== last.speaker ||
       patched.textCN !== last.textCN ||
       patched.textJP !== last.textJP ||
-      patched.nextNodeId !== last.nextNodeId ||
-      patched.choicePromptCN !== last.choicePromptCN;
+      patched.nextNodeId !== last.nextNodeId;
 
     if (!changed) return script;
     return { ...script, nodes: { ...script.nodes, [patched.id]: patched } };
@@ -725,13 +717,12 @@ const ensureUserChoiceTail = (script: GameScript): GameScript => {
     id: nodeId,
     speaker: SpeakerType.HEROINE,
     textCN: '那……接下来你想怎么做？',
-    textJP: 'じゃあ……これから、どうする？',
+    textJP: 'じゃ阿……これから、どうする？',
     emotion: 'normal',
     backgroundPrompt: last?.backgroundPrompt,
     bgm: last?.bgm,
     nextNodeId: undefined,
     nodeType: 'user_choice',
-    choicePromptCN: '请点击“新建”写出你的回答/行动，马上开始续写。',
   };
 
   if (last && !last.nextNodeId && !(last as any).choices) {
@@ -868,7 +859,7 @@ export const generateScript = async (
     MODE: Episodic. Generate the FIRST EPISODE only (we will continue later via player input).
     GENRE: School Romance / Slice of Life / Youth / Moe-ge.
     TARGET AUDIENCE: Otaku who love sweet, doki-doki, and comedic moments.
-    THEME: Youth campus love story. Keep it wholesome and PG-13.
+    THEME: Youth campus love story. Keep it wholesome and PG-16.
 
     CHARACTERS:
     1. ${protagonistName} (Protagonist): A high school student.
@@ -886,8 +877,7 @@ export const generateScript = async (
 
     VISUAL & AUDIO DIRECTION:
     - BACKGROUNDS (SCENE CONTROL, VERY IMPORTANT):
-      - HARD LIMIT: Use AT MOST 3 unique backgrounds for the entire story and REUSE them heavily.
-      - DEFAULT: Keep the same background for many consecutive nodes; do NOT change backgrounds frequently.
+      - DEFAULT: Keep the same background for many consecutive nodes; The background only changes when the male and female leads physically move..
       - SCENE SWITCH RULE: ONLY change background when BOTH the Protagonist and the Heroine clearly move to a different physical location (for example: classroom → rooftop, school → home).
       - DO NOT change background just for mood, angle, or small actions. Treat location changes as rare, important events.
       - Overall goal: As few distinct scenes as possible while keeping the story coherent.
@@ -910,15 +900,13 @@ export const generateScript = async (
       - IMPORTANT: The LAST node MUST be a user input decision point:
         - Set "nodeType" to "user_choice"
         - The LAST node MUST be spoken by the Heroine and MUST be a question in classic galgame style
-        - Add "choicePromptCN" to ask the player to click “新建”, type their option, and start continuation (galgame UI)
-        - Do NOT provide predefined choices.
 
     SCHEMA CONSTRAINTS:
     - speaker: "Heroine" or "Protagonist".
     - emotion: "normal", "happy", "surprised", "angry", "shy", "sad".
 
     EMOTION CONSISTENCY (IMPORTANT):
-    - Emotion selects the sprite. Do NOT switch emotions frequently.
+    - Emotion selects the sprite. Minimize the switching of emotions.
     - Keep the same emotion for several consecutive nodes unless the mood clearly changes.
     - Default to "normal"; use other emotions only for key beats.
   `;
@@ -1020,124 +1008,6 @@ export const generateScript = async (
   return ensureUserChoiceTail(result);
 };
 
-export const continueStory = async (params: {
-  protagonistName: string;
-  heroineName: string;
-  userChoiceText: string;
-  affinity?: number;
-  allowedBackgroundPrompts: string[];
-  recentDialogue: Array<{ speaker: string; textCN: string }>;
-}): Promise<{ nodes: Record<string, StoryNode>; startNodeId: string; affinityDelta: number; ending: boolean }> => {
-  const { protagonistName, heroineName, userChoiceText, affinity, allowedBackgroundPrompts, recentDialogue } = params;
-
-  const backgrounds = allowedBackgroundPrompts.length > 0 ? allowedBackgroundPrompts : [FALLBACK_BACKGROUND];
-  const historyText = recentDialogue
-    .slice(-12)
-    .map((n) => `${n.speaker}: ${n.textCN}`)
-    .join('\n');
-
-  const affectionHint =
-    typeof affinity === 'number'
-      ? `Relationship sync is ${affinity}/100. Reflect it subtly in tone and intimacy, keep it PG-13.`
-      : '';
-
-	  const prompt = `
-	    You are the LEAD SCENARIO WRITER for a Japanese school romance visual novel (Galgame), like Senren * Banka (千恋＊万花).
-		    Continue the story from the given context and the player's selected option.
-
-	    STORY ARC (VERY IMPORTANT):
-	    - Write as a complete Japanese school romance galgame with a clear beginning → development → climax → resolution.
-	    - Each continuation should progress the relationship and the overall plot (青春校园恋爱).
-	    - Decide an "affinityDelta" that reflects how this player option affects the heroine's affection.
-	    - Pace it so a full playthrough typically reaches 100 within about 6–10 player choices (avoid stagnation).
-	    - If (currentAffinity + affinityDelta) reaches 100, you MUST write the climax + confession + sweet ending and finish the story.
-	
-	    STYLE:
-	    - Sweet, moe, youth romance, comedic beats, doki-doki moments.
-	    - More like a classic otaku-friendly galgame, not western drama.
-    - Keep it PG-13 (no explicit sexual content).
-    - Heroine should be shy/cute like anime galgame.
-    - Example (style reference, do NOT copy verbatim):
-      - CN: 「你、你别突然靠这么近啦……心跳会、会乱掉的……」
-      - JP: 「も、もう……そんなに近づかないでよ……心臓、変になっちゃう……」
-
-    CHARACTERS:
-    - Protagonist: ${protagonistName}
-    - Heroine: ${heroineName}
-
-    AVAILABLE BACKGROUNDS (MUST choose from this list ONLY):
-    ${backgrounds.map((b) => `- ${b}`).join('\n')}
-
-    AVAILABLE EMOTIONS (MUST choose from this list ONLY):
-    - normal, happy, surprised, angry, shy, sad
-
-    EMOTION CONSISTENCY (IMPORTANT):
-    - Emotion selects the sprite. Do NOT switch emotions frequently.
-    - Keep the same emotion for several consecutive nodes unless the mood clearly changes.
-    - Default to "normal"; use other emotions only for key beats.
-
-    CONTEXT (recent dialogue):
-    ${historyText}
-
-	    PLAYER SELECTED OPTION:
-	    "${userChoiceText}"
-
-	    CURRENT AFFINITY:
-	    ${typeof affinity === 'number' ? `${affinity}/100` : 'unknown'}
-
-	    ${affectionHint}
-	
-	    OUTPUT REQUIREMENTS:
-	    - OUTPUT FORMAT: RAW JSON ONLY, one single JSON object, no markdown.
-	      - Use the TOP-LEVEL KEY "nodes".
-	      - You MUST include top-level keys:
-	        - "affinityDelta": number (can be negative; typical range -10..+20)
-	        - "ending": boolean
-	      - If ending=false:
-	        - Generate 6 to 10 new STORY NODES, then end with a user input decision point node:
-	          - Set "nodeType" to "user_choice"
-	          - The LAST node MUST be spoken by the Heroine and MUST be a question in classic galgame style
-	          - Add "choicePromptCN" to ask the player to click “新建”, type their option, and start continuation (galgame UI)
-	          - Do NOT provide predefined choices.
-	      - If ending=true:
-	        - Generate 8 to 14 nodes for the climax + confession + sweet ending.
-	        - The LAST node MUST be spoken by the Heroine and MUST conclude the story (no question, no choicePromptCN).
-	        - Set the LAST node's "nodeType" to "ending".
-	    - Every node MUST include fields: id, speaker, textCN, emotion, backgroundPrompt.
-	    - Heroine lines should include textJP (Japanese) when appropriate.
-	  `;
-
-  const response = await lingyaChatCompletion({
-    messages: buildChatMessages(prompt),
-    temperature: 0.7,
-    max_tokens: 4096,
-  });
-
-  const rawText = getChatContent(response);
-  if (!rawText || rawText.trim().length === 0) {
-    throw new Error(`AI Generation Blocked${formatChatBlockedDetails(response)}`);
-  }
-
-  const rawData = extractJSON(rawText);
-  const affinityDelta =
-    typeof (rawData as any)?.affinityDelta === 'number'
-      ? (rawData as any).affinityDelta
-      : Number.isFinite(Number((rawData as any)?.affinityDelta))
-        ? Number((rawData as any).affinityDelta)
-        : 0;
-  const ending = (rawData as any)?.ending === true || (rawData as any)?.ending === 1 || (rawData as any)?.ending === '1';
-  const parsed = normalizeNodes(rawData, { allowedBackgroundPrompts: backgrounds });
-  const prefixed = prefixNodeIds(parsed.nodes);
-
-  const startNodeId = prefixed[parsed.startNodeId]?.id || Object.keys(prefixed)[0];
-  if (ending) {
-    return { nodes: prefixed, startNodeId, affinityDelta, ending: true };
-  }
-
-  const script = ensureUserChoiceTail({ title: 'Segment', heroineName, startNodeId, nodes: prefixed });
-  return { nodes: script.nodes, startNodeId: script.startNodeId, affinityDelta, ending: false };
-};
-
 export type ContinueStoryStreamEvent =
   | { type: 'affinity'; delta: number; ending: boolean }
   | { type: 'node'; node: StoryNode }
@@ -1171,19 +1041,20 @@ export async function* continueStoryStream(params: {
     Continue the story from the given context and the player's selected option.
 
     STORY ARC (VERY IMPORTANT):
-    - Write like a real Japanese school romance galgame with a clear arc and rising romantic tension.
-    - Decide an "affinityDelta" for this option and output it FIRST as the meta line.
+    - Write as a complete Japanese school romance galgame with a clear beginning → development → climax → resolution.
+    - Each continuation should progress the relationship and the overall plot (青春校园恋爱).
+    - Decide an "affinityDelta" that reflects how this player option affects the heroine's affection.
     - Pace it so a full playthrough typically reaches 100 within about 6–10 player choices (avoid stagnation).
-    - If (currentAffinity + affinityDelta) reaches 100, you MUST write the climax + confession + sweet ending,
-      and end the story with a final "ending" node.
+    - If (currentAffinity + affinityDelta) reaches 100, you MUST write the climax + confession + sweet ending and finish the story.
 
     STYLE:
-    - Youth campus romance, sweet, moe, comedic beats, doki-doki moments.
-    - Heroine should be shy/cute like anime galgame (flustered, sweet, tsun/shy beats).
-    - Keep it wholesome and PG-13.
+    - Sweet, moe, youth romance, comedic beats, doki-doki moments.
+    - More like a classic otaku-friendly galgame, not western drama.
+    - Keep it PG-13 (no explicit sexual content).
+    - Heroine should be shy/cute like anime galgame.
     - Example (style reference, do NOT copy verbatim):
-      - CN: 「你、你突然这么认真……会让我误会的啦……」/「那、那你要不要……放学一起走？」 
-      - JP: 「そ、そんなに真剣に見ないでよ……勘違いしちゃう……」/「ね、ねえ……放課後、一緒に帰らない？」
+      - CN: 「你、你别突然靠这么近啦……心跳会、会乱掉的……」
+      - JP: 「も、もう……そんなに近づかないでよ……心臓、変になっちゃう……」
 
     CHARACTERS:
     - Protagonist: ${protagonistName}
@@ -1191,6 +1062,10 @@ export async function* continueStoryStream(params: {
 
     AVAILABLE BACKGROUNDS (MUST choose from this list ONLY):
     ${backgrounds.map((b) => `- ${b}`).join('\n')}
+    - DEFAULT: Keep the same background for many consecutive nodes; The background only changes when the male and female leads physically move..
+    - SCENE SWITCH RULE: ONLY change background when BOTH the Protagonist and the Heroine clearly move to a different physical location (for example: classroom → rooftop, school → home).
+    - DO NOT change background just for mood, angle, or small actions. Treat location changes as rare, important events.
+    - Overall goal: As few distinct scenes as possible while keeping the story coherent.
 
     AVAILABLE EMOTIONS (MUST choose from this list ONLY):
     - normal, happy, surprised, angry, shy, sad
@@ -1221,7 +1096,7 @@ export async function* continueStoryStream(params: {
     - If ending=false: Generate 6 to 10 nodes, then end with a final decision node:
       - The LAST node MUST be spoken by the Heroine and MUST be a question in classic galgame style.
       - Set "nodeType" to "user_choice"
-      - Include "choicePromptCN" to ask the player to click “新建”, type their option, and start continuation (galgame style).
+      - Do NOT output "choicePromptCN".
     - If ending=true: Generate 8 to 14 nodes for climax + confession + sweet ending:
       - The LAST node MUST be spoken by the Heroine and MUST conclude the story (no question, no choicePromptCN).
       - Set the LAST node's "nodeType" to "ending".
@@ -1235,14 +1110,13 @@ export async function* continueStoryStream(params: {
       "backgroundPrompt": "string (must be one of the available backgrounds)",
       "bgm": "bgm_bossa" | "bgm_playful" | "bgm_piano" | "bgm_night" | "bgm_sad" | "bgm_dream" | "bgm_morning",
       "nodeType": "user_choice" (ONLY for the last node when ending=false),
-      "choicePromptCN": "string (ONLY for the last node when ending=false)",
       "nodeType": "ending" (ONLY for the last node when ending=true)
     }
 
     OUTPUT EXAMPLE (JSONL, do NOT copy verbatim):
     {"speaker":"Heroine","emotion":"shy","backgroundPrompt":"classroom","bgm":"bgm_piano","textCN":"你、你真的要这么做吗……？","textJP":"ほ、本当に……そうするの？"}
     {"speaker":"Protagonist","emotion":"normal","backgroundPrompt":"classroom","bgm":"bgm_piano","textCN":"我点点头，心跳得更快了。"}
-    {"speaker":"Heroine","emotion":"shy","backgroundPrompt":"classroom","bgm":"bgm_piano","textCN":"那……你想让我怎么回答？","textJP":"じゃあ……どう返事してほしいの？","nodeType":"user_choice","choicePromptCN":"请点击“新建”写出你的回答/行动，马上开始续写。"}
+    {"speaker":"Heroine","emotion":"shy","backgroundPrompt":"classroom","bgm":"bgm_piano","textCN":"那……你想让我怎么回答？","textJP":"じゃ阿……どう返事してほしいの？","nodeType":"user_choice"}
   `;
 
   const ac = new AbortController();
@@ -1290,8 +1164,6 @@ export async function* continueStoryStream(params: {
     const nodeType: StoryNode['nodeType'] =
       nodeTypeRaw === 'user_choice' || nodeTypeRaw === 'dialogue' || nodeTypeRaw === 'ending' ? (nodeTypeRaw as any) : undefined;
 
-    const choicePromptCN =
-      typeof node?.choicePromptCN === 'string' && node.choicePromptCN.trim().length > 0 ? node.choicePromptCN.trim() : undefined;
 
     let backgroundPrompt =
       typeof node?.backgroundPrompt === 'string' && node.backgroundPrompt.trim().length > 0
@@ -1318,7 +1190,6 @@ export async function* continueStoryStream(params: {
       bgm,
       nextNodeId: nodeType === 'user_choice' || nodeType === 'ending' ? undefined : nextId,
       nodeType,
-      choicePromptCN,
     };
   };
 
@@ -1438,12 +1309,11 @@ export async function* continueStoryStream(params: {
           id,
           speaker: SpeakerType.HEROINE,
           textCN: '那……接下来你想怎么做？',
-          textJP: 'じゃあ……これから、どうする？',
+          textJP: 'じゃ阿……これから、どうする？',
           emotion: 'shy',
           backgroundPrompt: lastBg,
           bgm: lastBgm,
           nodeType: 'user_choice',
-          choicePromptCN: '请点击“新建”写出你的回答/行动，马上开始续写。',
         },
       };
     }
@@ -1483,40 +1353,21 @@ export const generateProtagonist = async (
   const parts: any[] = [];
   let prompt = '';
 
-	  if (userPhotoBase64) {
-	    parts.push({ inlineData: { mimeType, data: userPhotoBase64 } });
-	    prompt = `
-	      CRITICAL INSTRUCTION:
-	      1. FACE/HEAD: Must be 100% PIXEL-PERFECT MATCH to the provided reference image.
-	      2. BODY/POSE: Generate a NEW body pose matching: "${emotion}". Keep it subtle and natural (NO exaggerated action).
-	      3. CLOTHING: Black Japanese Gakuran Uniform.
-	      4. INTEGRATION: Seamlessly attach the reference face to the new body pose.
-	      5. FRAMING: Half-body or full-body portrait, eye-level camera, front view.
-	      STYLE: Photorealistic. BACKGROUND: Pure Solid White (Hex #FFFFFF).
-	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
-	    `;
-	  } else if (referenceImageBase64) {
-	    parts.push({ inlineData: { mimeType: guessMimeTypeFromBase64(referenceImageBase64, mimeType), data: referenceImageBase64 } });
-	    prompt = `
-	      Reference: This anime character.
-	      Task: Redraw this character with NEW pose/expression: ${emotion} (subtle, no exaggerated action).
-	      Constraint: MUST Keep facial features, hair identical!
-	      Framing: Half-body or full-body portrait, eye-level camera, front view.
-	      Background: Solid white.
-	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
-	    `;
-	  } else {
-	    prompt = `
-	      Generate a handsome anime boy character sprite.
-	      Style: Kyoto Animation (Clannad).
-	      Clothing: Japanese High School Uniform (Black Gakuran).
-	      Appearance: Short black hair, friendly face.
-	      Expression: ${emotion} (subtle, no exaggerated action).
-	      Framing: Half-body or full-body portrait, eye-level camera, front view.
-	      Background: Solid white.
-	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
-	    `;
-	  }
+  if (userPhotoBase64) {
+    parts.push({ inlineData: { mimeType, data: userPhotoBase64 } });
+    prompt = `
+      CRITICAL INSTRUCTION:
+      1. FACE/HEAD: Must be 100% PIXEL-PERFECT MATCH to the provided reference image.
+      2. BODY/POSE: Generate a NEW body pose matching: "${emotion}". Keep it subtle and natural (NO exaggerated action).
+      3. CLOTHING: Black Japanese Gakuran Uniform.
+      4. INTEGRATION: Seamlessly attach the reference face to the new body pose.
+      5. FRAMING: Half-body or full-body portrait, eye-level camera, front view.
+      STYLE: Photorealistic. BACKGROUND: Pure Solid White (Hex #FFFFFF).
+      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
+    `;
+  } else {
+    throw new Error('必须上传照片或提供参考图');
+  }
 
   parts.push({ text: prompt });
   return getImageUrlFromParts(parts, '1:1');
@@ -1531,53 +1382,26 @@ export const generateHeroine = async (
   const parts: any[] = [];
   let prompt = '';
 
-	  if (userPhotoBase64) {
-	    parts.push({ inlineData: { mimeType, data: userPhotoBase64 } });
-	    prompt = `
-	      CRITICAL INSTRUCTION:
-	      1. FACE/HEAD: Must be 100% PIXEL-PERFECT MATCH to the provided reference image.
-	      2. BODY/POSE: Generate a NEW body pose matching: "${emotion}". Make the expression CLEARER and the gesture SLIGHTLY more obvious than before (still natural; NO exaggerated action).
-	      3. CLOTHING: Japanese Sailor School Uniform (Seifuku).
-	      4. INTEGRATION: Seamlessly attach the reference face to the new body pose.
-	      5. FRAMING: Half-body or full-body portrait, eye-level camera, front view.
-	      6. VIBE: "少女化" / a sweet, youthful schoolgirl vibe (still the SAME face & hairstyle).
-	      STYLE: Photorealistic. BACKGROUND: Pure Solid White (Hex #FFFFFF).
-	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
-	      EXPRESSION/POSE HINTS (pick ONE that fits "${emotion}"):
-	      - shy: blushing, avoiding eye contact slightly, fingers fidgeting, small nervous smile
-	      - pampering/撒娇: puffed cheeks, tiny pout, hands lightly pulling sleeve
-	      - sad: watery eyes, slightly downturned mouth, shoulders a bit slumped
-	    `;
-	  } else if (referenceImageBase64) {
-	    parts.push({ inlineData: { mimeType: guessMimeTypeFromBase64(referenceImageBase64, mimeType), data: referenceImageBase64 } });
-	    prompt = `
-	      Reference: This anime character (a cute schoolgirl / 少女).
-	      Task: Redraw this character with NEW pose/expression: ${emotion}.
-	      Constraints (STRICT):
-	      - Keep facial features and hairstyle IDENTICAL (do NOT change face shape, eyes, nose, mouth, bangs, hair length).
-	      - Keep clothing (Sailor suit) identical.
-	      - Expression must be MORE CLEAR and the gesture slightly more obvious (still natural; no exaggerated action).
-	      Framing: Half-body or full-body portrait, eye-level camera, front view.
-	      Background: Solid white.
-	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
-	      VIBE: "少女化" / sweet youthful schoolgirl vibe.
-	      EXPRESSION/POSE HINTS (pick ONE that fits ${emotion}):
-	      - shy: blushing, eyes glancing away, hands close to chest
-	      - pampering/撒娇: tiny pout, cheeks slightly puffed, shy smile after teasing
-	      - sad: watery eyes, gentle trembling smile, looking down a bit
-	    `;
-	  } else {
-	    prompt = `
-	      Generate a cute anime schoolgirl character sprite (一个可爱的少女 / "少女化").
-	      Style: Kyoto Animation (Clannad).
-	      Appearance: Long light brown hair, big eyes, school uniform with ribbon.
-	      Expression: ${emotion} (make it clearly readable; slightly more obvious than before, but not exaggerated).
-	      Pose: small, cute, natural gesture that matches the emotion (e.g., shy fidgeting, light sleeve tug, tiny pout).
-	      Framing: Half-body or full-body portrait, eye-level camera, front view.
-	      Background: Solid white.
-	      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
-	    `;
-	  }
+  if (userPhotoBase64) {
+    parts.push({ inlineData: { mimeType, data: userPhotoBase64 } });
+    prompt = `
+      CRITICAL INSTRUCTION:
+      1. FACE/HEAD: Must be 100% PIXEL-PERFECT MATCH to the provided reference image.
+      2. BODY/POSE: Generate a NEW body pose matching: "${emotion}". Make the expression CLEARER and the gesture SLIGHTLY more obvious than before (still natural; NO exaggerated action).
+      3. CLOTHING: Japanese Sailor School Uniform (Seifuku).
+      4. INTEGRATION: Seamlessly attach the reference face to the new body pose.
+      5. FRAMING: Half-body or full-body portrait, eye-level camera, front view.
+      6. VIBE: "少女化" / a sweet, youthful schoolgirl vibe (still the SAME face & hairstyle).
+      STYLE: Photorealistic. BACKGROUND: Pure Solid White (Hex #FFFFFF).
+      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
+      EXPRESSION/POSE HINTS (pick ONE that fits "${emotion}"):
+      - shy: blushing, avoiding eye contact slightly, fingers fidgeting, small nervous smile
+      - pampering/撒娇: puffed cheeks, tiny pout, hands lightly pulling sleeve
+      - sad: watery eyes, slightly downturned mouth, shoulders a bit slumped
+    `;
+  } else {
+    throw new Error('必须上传照片或提供参考图');
+  }
 
   parts.push({ text: prompt });
   return getImageUrlFromParts(parts, '1:1');

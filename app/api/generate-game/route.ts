@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserIdFromRequest } from '@/lib/authSession';
 import { enforceNoCnPoliticalSensitive, enforcePolicyAccepted } from '@/lib/policy';
-import { consumeUserCoins } from '@/lib/userStore';
+import { consumeUserCoins, refundUserCoins } from '@/lib/userStore';
 import { cleanupExpiredJobsForUser, readJob } from '@/lib/gameGenerationCache';
 import { createGenerationJobId, startGameGenerationJob, type StartGameGenerationInput } from '@/lib/gameGenerationWorker';
+import { getGenerationQueueStatus } from '@/lib/generationQueue';
 
 export const runtime = 'nodejs';
 
@@ -13,7 +14,10 @@ export async function POST(req: NextRequest) {
 
   const input = (await req.json()) as StartGameGenerationInput;
   const protagonistName = typeof input?.protagonistName === 'string' ? input.protagonistName.trim() : '';
-  if (!protagonistName) return NextResponse.json({ error: 'protagonistName is required' }, { status: 400 });
+  const heroinePhotoBase64 = typeof input?.heroinePhotoBase64 === 'string' ? input.heroinePhotoBase64.trim() : '';
+  if (!heroinePhotoBase64) {
+    return NextResponse.json({ error: '女主照片必传' }, { status: 400 });
+  }
 
   const acceptRes = await enforcePolicyAccepted({ userId });
   if (acceptRes) return acceptRes;
@@ -26,7 +30,15 @@ export async function POST(req: NextRequest) {
   });
   if (policyRes) return policyRes;
 
+  const queueStatus = getGenerationQueueStatus();
+  if (queueStatus.queued >= queueStatus.limit) {
+    return NextResponse.json({ error: '服务器繁忙，请稍后再试' }, { status: 429 });
+  }
+
   const isMax = input?.maxMode === true || input?.maxMode === 1 || input?.maxMode === '1';
+  if (!isMax && input?.protagonistPhotoBase64) {
+    return NextResponse.json({ error: '非 MAX 模式不能生成男主' }, { status: 400 });
+  }
   const cost = isMax ? 2 : 1;
   try {
     await consumeUserCoins(userId, cost);
@@ -42,7 +54,13 @@ export async function POST(req: NextRequest) {
 
   const jobId = createGenerationJobId();
   await cleanupExpiredJobsForUser(userId);
-  await startGameGenerationJob({ userId, jobId, input, coinCost: cost });
+  const started = await startGameGenerationJob({ userId, jobId, input, coinCost: cost });
+  if (!started.accepted) {
+    try {
+      await refundUserCoins(userId, cost);
+    } catch {}
+    return NextResponse.json({ error: '服务器繁忙，请稍后再试' }, { status: 503 });
+  }
   return NextResponse.json({ jobId });
 }
 

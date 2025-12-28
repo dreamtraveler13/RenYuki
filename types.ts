@@ -48,7 +48,6 @@ export interface StoryNode {
   choices?: Choice[]; 
   nextNodeId?: string; // Linear flow if no choices
   nodeType?: 'dialogue' | 'user_choice' | 'ending';
-  choicePromptCN?: string;
 }
 
 export interface GameScript {
@@ -63,6 +62,7 @@ export interface GeneratedAssets {
   protagonist: CharacterImages;
   backgrounds: Record<string, string>; 
   music: Record<string, string>; // key -> base64 audio data
+  voice?: Record<string, string>; // nodeId -> data URL
 }
 
 export interface UserProfile {
@@ -141,7 +141,7 @@ export interface SaveFile {
 }
 
 export interface GameGenerationInput {
-  protagonistName: string;
+  protagonistName?: string;
   heroineName?: string;
   plotDescription: string;
   maxMode?: boolean;

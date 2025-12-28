@@ -30,19 +30,103 @@ export const removeBackground = async (base64Data: string): Promise<string> => {
       const visited = new Uint8Array(width * height);
       const stack: number[] = [];
 
-      const START_THRESHOLD = 240;
-      const FILL_THRESHOLD = 240;
+      const START_THRESHOLD = 235;
+      const FILL_THRESHOLD = 230;
+      const SAT_THRESHOLD = 18;
+      const COLOR_DISTANCE_THRESHOLD = 28;
+      const EDGE_THRESHOLD = 45;
+
       const getBrightness = (idx: number) => (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
-      const isBackgroundCandidate = (idx: number) => {
+      const getSaturation = (idx: number) => {
         const r = data[idx];
         const g = data[idx + 1];
         const b = data[idx + 2];
-        return r > FILL_THRESHOLD && g > FILL_THRESHOLD && b > FILL_THRESHOLD;
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        return max - min;
+      };
+      const colorDistance = (idx: number, bg: { r: number; g: number; b: number }) =>
+        Math.abs(data[idx] - bg.r) + Math.abs(data[idx + 1] - bg.g) + Math.abs(data[idx + 2] - bg.b);
+
+      const getPixelIdx = (x: number, y: number) => (y * width + x) * 4;
+
+      const sampleCornerColor = (x: number, y: number) => {
+        const radius = Math.max(1, Math.round(Math.min(width, height) * 0.01));
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let count = 0;
+        for (let dy = 0; dy <= radius; dy += 1) {
+          for (let dx = 0; dx <= radius; dx += 1) {
+            const sx = Math.min(width - 1, Math.max(0, x + dx));
+            const sy = Math.min(height - 1, Math.max(0, y + dy));
+            const idx = getPixelIdx(sx, sy);
+            r += data[idx];
+            g += data[idx + 1];
+            b += data[idx + 2];
+            count += 1;
+          }
+        }
+        return { r: r / count, g: g / count, b: b / count };
       };
 
-      const corners = [0, width - 1, (height - 1) * width, width * height - 1];
-      for (const idx of corners) {
-        if (getBrightness(idx * 4) > START_THRESHOLD) {
+      const corners = [
+        sampleCornerColor(0, 0),
+        sampleCornerColor(width - 1, 0),
+        sampleCornerColor(0, height - 1),
+        sampleCornerColor(width - 1, height - 1),
+      ];
+
+      const brightCorners = corners.filter((c) => (c.r + c.g + c.b) / 3 > START_THRESHOLD);
+      const bgSamples = brightCorners.length > 0 ? brightCorners : corners;
+      const background = bgSamples.reduce(
+        (acc, c) => ({ r: acc.r + c.r, g: acc.g + c.g, b: acc.b + c.b }),
+        { r: 0, g: 0, b: 0 }
+      );
+      background.r /= bgSamples.length;
+      background.g /= bgSamples.length;
+      background.b /= bgSamples.length;
+
+      const isEdgeStrong = (x: number, y: number, idx: number) => {
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        let maxDiff = 0;
+        const neighbors = [
+          [x - 1, y],
+          [x + 1, y],
+          [x, y - 1],
+          [x, y + 1],
+        ];
+        for (const [nx, ny] of neighbors) {
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          const nIdx = getPixelIdx(nx, ny);
+          const diff =
+            Math.abs(r - data[nIdx]) + Math.abs(g - data[nIdx + 1]) + Math.abs(b - data[nIdx + 2]);
+          if (diff > maxDiff) maxDiff = diff;
+        }
+        return maxDiff > EDGE_THRESHOLD;
+      };
+
+      const isBackgroundCandidate = (idx: number, x: number, y: number) => {
+        const brightness = getBrightness(idx);
+        if (brightness < FILL_THRESHOLD) return false;
+        if (getSaturation(idx) > SAT_THRESHOLD) return false;
+        if (colorDistance(idx, background) > COLOR_DISTANCE_THRESHOLD) return false;
+        if (isEdgeStrong(x, y, idx)) return false;
+        return true;
+      };
+
+      const cornerPoints = [
+        { x: 0, y: 0 },
+        { x: width - 1, y: 0 },
+        { x: 0, y: height - 1 },
+        { x: width - 1, y: height - 1 },
+      ];
+      for (const c of cornerPoints) {
+        const idx = c.y * width + c.x;
+        const pixelIdx = idx * 4;
+        if (getBrightness(pixelIdx) > START_THRESHOLD && getSaturation(pixelIdx) <= SAT_THRESHOLD) {
           stack.push(idx);
           visited[idx] = 1;
         }
@@ -61,7 +145,7 @@ export const removeBackground = async (base64Data: string): Promise<string> => {
         for (const nIdx of neighbors) {
           if (visited[nIdx] === 0) {
             const pixelIdx = nIdx * 4;
-            if (isBackgroundCandidate(pixelIdx)) {
+            if (isBackgroundCandidate(pixelIdx, nIdx % width, Math.floor(nIdx / width))) {
               visited[nIdx] = 1;
               stack.push(nIdx);
             } else {

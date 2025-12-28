@@ -9,7 +9,7 @@ const rowToSave = (row: any): SaveFile => ({
   affinity: typeof row.affinity === 'number' ? row.affinity : Number(row.affinity) || 0,
   currentNodeId: String(row.current_node_id),
   script: jsonParse<GameScript>(row.script_json, { title: 'Untitled Story', heroineName: 'Unknown', startNodeId: '', nodes: {} }),
-  assets: jsonParse<GeneratedAssets>(row.assets_json, { heroine: { normal: '', happy: '', surprised: '', angry: '', shy: '' }, protagonist: { normal: '', happy: '', surprised: '', angry: '', shy: '' }, backgrounds: {}, music: {} }),
+  assets: jsonParse<GeneratedAssets>(row.assets_json, { heroine: { normal: '', happy: '', surprised: '', angry: '', shy: '' }, protagonist: { normal: '', happy: '', surprised: '', angry: '', shy: '' }, backgrounds: {}, music: {}, voice: {} }),
   userProfile: jsonParse<UserProfile>(row.user_profile_json, { name: '', avatarBase64: '' }),
   memoryCoverBase64: row.memory_cover_base64 || undefined,
 });

@@ -500,6 +500,7 @@ const App: React.FC = () => {
       protagonist,
       heroine,
       music: payload.assets.music || {},
+      voice: payload.assets.voice || {},
     };
 
     try {

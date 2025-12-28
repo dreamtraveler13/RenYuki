@@ -1,6 +1,7 @@
 import crypto from 'crypto';
-import { GeneratedAssets, GameScript, UserProfile } from '@/types';
+import { GeneratedAssets, GameScript, SpeakerType, StoryNode, UserProfile } from '@/types';
 import { createJob, updateJob } from '@/lib/gameGenerationCache';
+import { enqueueGenerationJob } from '@/lib/generationQueue';
 import {
   generateBackgroundImage,
   generateHeroine,
@@ -10,9 +11,10 @@ import {
   withAiDebug,
 } from '@/lib/aiServer';
 import { refundUserCoins } from '@/lib/userStore';
+import { generateHeroineTts } from '@/lib/ttsServer';
 
 export interface StartGameGenerationInput {
-  protagonistName: string;
+  protagonistName?: string;
   heroineName?: string;
   plotDescription: string;
   maxMode?: boolean | 0 | 1 | '0' | '1';
@@ -196,25 +198,79 @@ const generateBackgrounds = async (
   return backgrounds;
 };
 
+const getOrderedNodes = (script: GameScript): StoryNode[] => {
+  const order: StoryNode[] = [];
+  const visited = new Set<string>();
+  let currentId = script.startNodeId;
+  while (currentId && !visited.has(currentId)) {
+    const node = script.nodes[currentId];
+    if (!node) break;
+    visited.add(currentId);
+    order.push(node);
+    currentId = node.nextNodeId || '';
+  }
+  return order;
+};
+
+const pickHeroineVoiceLines = (script: GameScript, count: number) => {
+  const nodes = getOrderedNodes(script);
+  const lines: Array<{ nodeId: string; text: string }> = [];
+  for (const node of nodes) {
+    if (node.speaker !== SpeakerType.HEROINE) continue;
+    const text = (node.textJP || node.textCN || '').trim();
+    if (!text) continue;
+    lines.push({ nodeId: node.id, text });
+    if (lines.length >= count) break;
+  }
+  return lines;
+};
+
+const generateHeroineVoiceMap = async (
+  script: GameScript,
+  onUpdate: (patch: { progress?: number; message?: string }) => Promise<void>
+) => {
+  const lines = pickHeroineVoiceLines(script, 3);
+  if (lines.length === 0) return {};
+
+  const voice: Record<string, string> = {};
+  for (let i = 0; i < lines.length; i += 1) {
+    await onUpdate({ progress: 84 + Math.round((i / lines.length) * 6), message: `正在生成女主语音（${i + 1}/${lines.length}）` });
+    try {
+      const result = await generateHeroineTts({ text: lines[i].text });
+      voice[lines[i].nodeId] = result.dataUrl;
+    } catch (err) {
+      console.warn('generate heroine tts failed', err);
+    }
+  }
+  return voice;
+};
+
 const buildGamePayload = async (
   input: StartGameGenerationInput,
   onUpdate: (patch: { progress?: number; message?: string }) => Promise<void>
 ): Promise<GeneratedGamePayload> => {
-  const protagonistName = String(input.protagonistName || '').trim();
+  const isMax = input.maxMode === true || input.maxMode === 1 || input.maxMode === '1';
+  const protagonistName = String(input.protagonistName || '').trim() || '我';
   const heroineName = String(input.heroineName || '').trim() || 'Unit-01';
   const plotDescription = String(input.plotDescription || '').trim();
+  const heroinePhotoBase64 = typeof input.heroinePhotoBase64 === 'string' ? input.heroinePhotoBase64.trim() : '';
+  if (!heroinePhotoBase64) throw new Error('女主照片必传');
 
   await onUpdate({ progress: 2, message: '正在准备生成任务' });
 
   const scenesPromise = (async () => {
     await onUpdate({ progress: 8, message: '正在推测场景' });
     const scenes = await inferBackgroundScenes(plotDescription);
-    const cleaned = sanitizeScenes(scenes);
+    const cleaned = sanitizeScenes(scenes).slice(0, isMax ? 3 : 2);
     if (cleaned.length === 0) throw new Error('场景推测失败，请换个更具体的场景描述重试');
     return cleaned;
   })();
 
   const protagonistPromise = (async () => {
+    if (!isMax || !input.protagonistPhotoBase64) {
+      await onUpdate({ progress: 12, message: '跳过男主立绘' });
+      return { normal: '', happy: '', surprised: '', angry: '', shy: '' };
+    }
     await onUpdate({ progress: 12, message: '正在生成主角立绘' });
     return await generateProtagonistSet(input);
   })();
@@ -245,18 +301,27 @@ const buildGamePayload = async (
     return { ...script, title: titleFromUser };
   })();
 
-  const [script, protagonist, heroine, backgrounds] = await Promise.all([
+  const voicePromise = (async () => {
+    const script = await scriptPromise;
+    return await generateHeroineVoiceMap(script, onUpdate);
+  })();
+
+  const [script, protagonist, heroine, backgrounds, voice] = await Promise.all([
     scriptPromise,
     protagonistPromise,
     heroinePromise,
     backgroundsPromise,
+    voicePromise,
   ]);
 
   await onUpdate({ progress: 94, message: '正在整理生成结果' });
 
   const userProfile: UserProfile = {
     name: protagonistName,
-    avatarBase64: input.protagonistPhotoBase64 || String((protagonist as any).normal || ''),
+    avatarBase64:
+      input.protagonistPhotoBase64 ||
+      input.heroinePhotoBase64 ||
+      String((protagonist as any).normal || ''),
   };
 
   const assets: GeneratedAssets = {
@@ -264,6 +329,7 @@ const buildGamePayload = async (
     heroine: heroine as any,
     backgrounds,
     music: {},
+    voice,
   };
 
   await onUpdate({ progress: 100, message: '生成完成' });
@@ -284,9 +350,9 @@ export const startGameGenerationJob = async (params: {
   jobId: string;
   input: StartGameGenerationInput;
   coinCost: number;
-}) => {
+}): Promise<{ accepted: boolean }> => {
   const { userId, jobId, input, coinCost } = params;
-  await createJob<GeneratedGamePayload>(userId, jobId, '任务已创建，准备生成…');
+  await createJob<GeneratedGamePayload>(userId, jobId, '排队中');
 
   const run = async () => {
     try {
@@ -327,5 +393,24 @@ export const startGameGenerationJob = async (params: {
     }
   };
 
-  void run();
+  const queued = enqueueGenerationJob(run);
+  if (!queued.accepted) {
+    await updateJob<GeneratedGamePayload>(userId, jobId, {
+      state: 'failed',
+      progress: 100,
+      message: '排队失败',
+      error: '服务器繁忙，请稍后再试',
+    });
+    return { accepted: false };
+  }
+
+  if (!queued.started && queued.position > 1) {
+    await updateJob<GeneratedGamePayload>(userId, jobId, {
+      state: 'queued',
+      progress: 0,
+      message: `排队中（前面还有 ${queued.position - 1} 个任务）`,
+    });
+  }
+
+  return { accepted: true };
 };

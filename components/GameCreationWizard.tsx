@@ -342,20 +342,20 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
       },
       {
         key: 'protagonist-name',
-        title: '2) 主角名字（必填）',
-        body: '只要填了主角名字，就能开始生成。',
+        title: '2) 主角名字（可选，MAX 模式）',
+        body: 'MAX 模式可选填写主角名字，搭配上传照片才会生成男主。',
         getEl: () => protagonistNameRef.current,
       },
       {
         key: 'protagonist-photo',
-        title: '3) 主角照片（可选）',
-        body: '可上传一张照片，让主角更像你；不上传也没关系。',
+        title: '3) 主角照片（可选，MAX 模式）',
+        body: 'MAX 模式可选上传主角照片；不上传则不生成男主。',
         getEl: () => protagonistUploadRef.current,
       },
       {
         key: 'heroine',
-        title: '4) 女主角（可选）',
-        body: '女主名字可留空（默认 Unit-01）。也可以上传照片来决定外观。',
+        title: '4) 女主角（必填照片）',
+        body: '女主名字可留空（默认 Unit-01）。必须上传女主照片。',
         getEl: () => heroineNameRef.current || heroineUploadRef.current,
       },
       {
@@ -413,7 +413,12 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
   }, [step, showPolicyModal, errorMessage]);
 
   const handleStart = async () => {
-    if (!userName) return;
+    if (!heroinePhoto) {
+      if (mountedRef.current) {
+        setErrorMessage('请先上传女主照片');
+      }
+      return;
+    }
 
     if (!policyAccepted) {
       try {
@@ -440,11 +445,11 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
     try {
       const targetHeroine = heroineName.trim() || 'Unit-01';
       const { jobId } = await startGameGeneration({
-        protagonistName: userName,
+        protagonistName: maxMode ? userName.trim() : '',
         heroineName: targetHeroine,
         plotDescription,
         maxMode,
-        protagonistPhotoBase64: protagonistPhoto,
+        protagonistPhotoBase64: maxMode ? protagonistPhoto : undefined,
         protagonistMimeType,
         heroinePhotoBase64: heroinePhoto,
         heroineMimeType,
@@ -569,14 +574,15 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
                 </div>
 
                 {/* Mobile-first stacked layout, desktop keeps 2 columns */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-16">
+                <div className={`grid grid-cols-1 ${maxMode ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-8 md:gap-16`}>
               
-              {/* Left Column: Protagonist */}
-              <div className="space-y-6 stagger-enter stagger-1">
-                  <div className="flex items-baseline gap-2 mb-2 border-b border-black pb-2">
-                    <span className="font-mono-tech text-xs text-black bg-gray-200 px-1">02</span>
-                    <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">主角</h3>
-                  </div>
+	              {/* Left Column: Protagonist (MAX only) */}
+	              {maxMode && (
+	              <div className="space-y-6 stagger-enter stagger-1">
+	                  <div className="flex items-baseline gap-2 mb-2 border-b border-black pb-2">
+	                    <span className="font-mono-tech text-xs text-black bg-gray-200 px-1">02</span>
+	                    <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">主角</h3>
+	                  </div>
                   
                   <div className="group relative">
                     <label className="block text-[9px] font-mono-tech text-gray-400 mb-1 uppercase tracking-wider">名字</label>
@@ -586,16 +592,16 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
                       value={userName}
                       onChange={(e) => setUserName(e.target.value)}
                       className="w-full bg-transparent border-b-2 border-gray-200 py-2 text-xl md:text-2xl font-bold focus:outline-none focus:border-black transition-colors rounded-none placeholder:text-gray-200"
-                      placeholder="请输入名字"
-                    />
-                  </div>
+	                      placeholder="请输入名字"
+	                    />
+	                  </div>
 
-                  <div>
-                    <label className="block text-[9px] font-mono-tech text-gray-400 mb-2 uppercase tracking-wider">照片 (可选)</label>
-                    <div
-                      ref={protagonistUploadRef}
-                      className="border border-dashed border-gray-300 hover:border-black transition-all cursor-pointer relative h-32 flex items-center justify-center bg-gray-50 hover:bg-white group"
-                    >
+	                  <div>
+	                    <label className="block text-[9px] font-mono-tech text-gray-400 mb-2 uppercase tracking-wider">照片 (可选)</label>
+	                    <div
+	                      ref={protagonistUploadRef}
+	                      className="border border-dashed border-gray-300 hover:border-black transition-all cursor-pointer relative h-32 flex items-center justify-center bg-gray-50 hover:bg-white group"
+	                    >
                       <input type="file" accept="image/*" onChange={handleProtagonistUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                       {protagonistPhoto ? (
                         <img src={`data:${protagonistMimeType};base64,${protagonistPhoto}`} className="h-full object-contain mix-blend-multiply" alt="预览" />
@@ -603,17 +609,19 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
                         <div className="text-center group-hover:scale-105 transition-transform">
                           <div className="text-xs font-bold text-gray-900 uppercase tracking-widest border border-black px-2 py-1 inline-block">上传图片</div>
                         </div>
-                      )}
-                    </div>
-                  </div>
-              </div>
-
-              {/* Right Column: Heroine */}
-              <div className="space-y-6 stagger-enter stagger-2">
-                  <div className="flex items-baseline gap-2 mb-2 border-b border-black pb-2">
-                    <span className="font-mono-tech text-xs text-black bg-gray-200 px-1">03</span>
-                    <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">女主角</h3>
-                  </div>
+	                      )}
+	                    </div>
+                      <div className="text-[9px] font-mono-tech text-gray-400 mt-2">不上传则不生成男主</div>
+	                  </div>
+	              </div>
+	              )}
+	            
+	            {/* Right Column: Heroine */}
+	            <div className="space-y-6 stagger-enter stagger-2">
+	                   <div className="flex items-baseline gap-2 mb-2 border-b border-black pb-2">
+	                     <span className="font-mono-tech text-xs text-black bg-gray-200 px-1">03</span>
+	                     <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">女主角</h3>
+	                   </div>
 
                    <div className="group relative">
                      <label className="block text-[9px] font-mono-tech text-gray-400 mb-1 uppercase tracking-wider">名字</label>
@@ -627,12 +635,12 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
                      />
                    </div>
 
-                   <div>
-                    <label className="block text-[9px] font-mono-tech text-gray-400 mb-2 uppercase tracking-wider">照片 (可选)</label>
-                    <div
-                      ref={heroineUploadRef}
-                      className="border border-dashed border-gray-300 hover:border-black transition-all cursor-pointer relative h-32 flex items-center justify-center bg-gray-50 hover:bg-white group"
-                    >
+	                   <div>
+	                    <label className="block text-[9px] font-mono-tech text-gray-400 mb-2 uppercase tracking-wider">照片 (必填)</label>
+	                    <div
+	                      ref={heroineUploadRef}
+	                      className="border border-dashed border-gray-300 hover:border-black transition-all cursor-pointer relative h-32 flex items-center justify-center bg-gray-50 hover:bg-white group"
+	                    >
                       <input type="file" accept="image/*" onChange={handleHeroineUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                       {heroinePhoto ? (
                         <img src={`data:${heroineMimeType};base64,${heroinePhoto}`} className="h-full object-contain mix-blend-multiply" alt="预览" />
@@ -640,10 +648,11 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
                         <div className="text-center group-hover:scale-105 transition-transform">
                           <div className="text-xs font-bold text-gray-900 uppercase tracking-widest border border-black px-2 py-1 inline-block">上传图片</div>
                         </div>
-                      )}
-                    </div>
-                  </div>
-              </div>
+	                      )}
+	                    </div>
+                      <div className="text-[9px] font-mono-tech text-gray-400 mt-2">必须上传女主照片</div>
+	                  </div>
+	              </div>
             </div>
           </div>
 
@@ -684,10 +693,10 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
                 <div ref={startButtonWrapRef} className="flex items-center gap-2 flex-1 md:flex-none">
                   <Button
                     onClick={handleStart}
-                    disabled={!userName}
-                    className={`w-full md:w-56 transition-transform ${userName ? 'active:scale-[0.98]' : ''}`}
+                    disabled={!heroinePhoto}
+                    className={`w-full md:w-56 transition-transform ${heroinePhoto ? 'active:scale-[0.98]' : ''}`}
                   >
-                    {!userName ? '请先填写主角名字' : maxMode ? '开始生成 (2 嘎拉币)' : '开始生成 (1 嘎拉币)'}
+                    {!heroinePhoto ? '请先上传女主照片' : maxMode ? '开始生成 (2 嘎拉币)' : '开始生成 (1 嘎拉币)'}
                   </Button>
                 </div>
               </div>

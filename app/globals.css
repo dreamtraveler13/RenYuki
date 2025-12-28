@@ -182,6 +182,7 @@ body {
   }
 }
 
+
 @media (prefers-reduced-motion: reduce) {
   .overlay-fade-in,
   .modal-scale-in,
@@ -365,4 +366,35 @@ body {
 
 .animate-fade-in {
   animation: fade-in-slow 1.5s ease-out forwards;
+}
+
+
+.animate-slide-down {
+  animation: slide-down 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
