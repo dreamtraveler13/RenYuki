@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { GameScript, GeneratedAssets, SpeakerType, Choice, StoryNode, UserProfile, SaveFile } from '../types';
 import Button from './Button';
 import Typewriter from './Typewriter';
+import CopyLinkModal from './CopyLinkModal';
 import { saveGame } from '../services/storageService';
 import { publishPlazaGame } from '../services/plazaService';
 import { generateHeroineVoice } from '../services/aiService';
@@ -129,6 +130,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
+  const [publishLink, setPublishLink] = useState<string | null>(null);
   const [currentBgmKey, setCurrentBgmKey] = useState<string | null>(null);
   const [continueError, setContinueError] = useState<string | null>(null);
   const [isContinuing, setIsContinuing] = useState(false);
@@ -534,24 +536,8 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
       const game = await publishPlazaGame(saveData);
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       const url = origin ? `${origin}/g/${game.id}` : `/g/${game.id}`;
-      let copied = false;
-      try {
-        await navigator.clipboard.writeText(url);
-        copied = true;
-      } catch {
-        try {
-          const ta = document.createElement('textarea');
-          ta.value = url;
-          ta.style.position = 'fixed';
-          ta.style.left = '-9999px';
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-          copied = true;
-        } catch {}
-      }
-      setPublishMessage(copied ? '已发布，分享链接已复制' : '已发布，可复制分享链接');
+      setPublishMessage('已发布');
+      setPublishLink(url);
     } catch (err: any) {
       setPublishMessage(err?.message || '上传失败');
     } finally {
@@ -622,6 +608,8 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
 
     try {
       const allowedBackgroundPrompts = Object.keys(assets.backgrounds);
+      const heroineEmotions = ['normal', 'shy', 'happy', 'surprised'];
+      const protagonistEmotions = hasProtagonist ? ['normal', 'happy', 'shy'] : heroineEmotions;
       const recentDialogue = dialogueHistory.slice(-12);
 
       const resp = await fetch(`${API_BASE}/api/continue-script`, {
@@ -633,6 +621,9 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
           userChoiceText: choiceText,
           affinity,
           allowedBackgroundPrompts,
+          allowedHeroineEmotions: heroineEmotions,
+          allowedProtagonistEmotions: protagonistEmotions,
+          hasProtagonistSprite: hasProtagonist,
           recentDialogue,
           stream: true,
         }),
@@ -1093,6 +1084,12 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-black select-none font-sans">
+      <CopyLinkModal
+        open={!!publishLink}
+        url={publishLink || ''}
+        title="已发布：复制分享链接"
+        onClose={() => setPublishLink(null)}
+      />
       {shouldRequireFullscreen && !isFullScreen && (
         <div className="absolute inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6 overlay-fade-in">
           <div className="bg-white text-black max-w-md w-full border-2 border-black shadow-2xl p-5 space-y-4 modal-scale-in">

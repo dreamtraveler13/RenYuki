@@ -18,6 +18,30 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at timestamptz NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS device_fingerprints (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  fingerprint_hash text NOT NULL,
+  ip text,
+  user_agent text,
+  created_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS generation_jobs (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  input_json jsonb NOT NULL,
+  status text NOT NULL,
+  progress integer NOT NULL DEFAULT 0,
+  message text NOT NULL,
+  error text,
+  coin_cost integer NOT NULL DEFAULT 0,
+  refunded_at timestamptz,
+  result_save_id bigint,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS orders (
   out_trade_no text PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -94,6 +118,10 @@ CREATE TABLE IF NOT EXISTS plaza_game_reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_device_fingerprint_hash ON device_fingerprints(fingerprint_hash);
+CREATE INDEX IF NOT EXISTS idx_device_fingerprints_user_id ON device_fingerprints(user_id);
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_user_id ON generation_jobs(user_id);
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_status ON generation_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_plaza_roles_created_at ON plaza_roles(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_saves_user_id ON saves(user_id);

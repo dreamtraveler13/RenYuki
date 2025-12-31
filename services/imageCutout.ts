@@ -170,12 +170,24 @@ export const removeBackground = async (base64Data: string): Promise<string> => {
   });
 };
 
-export const stripAssetBase64Map = async <T extends Record<string, any>>(assetsObj: T): Promise<T> => {
+export const stripAssetBase64Map = async <T extends Record<string, any>>(
+  assetsObj: T,
+  onProgress?: (done: number, total: number) => void
+): Promise<T> => {
   const entries = Object.entries(assetsObj).filter(([, v]) => typeof v === 'string' && v.trim().length > 0) as Array<
     [string, string]
   >;
   const unique = Array.from(new Set(entries.map(([, v]) => v)));
-  const cleanedPairs = await Promise.all(unique.map(async (img) => [img, await removeBackground(img)] as const));
+  const total = unique.length;
+  let done = 0;
+  const cleanedPairs = await Promise.all(
+    unique.map(async (img) => {
+      const cleaned = await removeBackground(img);
+      done += 1;
+      onProgress?.(done, total);
+      return [img, cleaned] as const;
+    })
+  );
   const map = new Map(cleanedPairs);
   const out: Record<string, any> = { ...assetsObj };
   entries.forEach(([k, v]) => {

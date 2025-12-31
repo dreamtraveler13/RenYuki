@@ -5,6 +5,7 @@ import { consumeUserCoins, refundUserCoins } from '@/lib/userStore';
 import { cleanupExpiredJobsForUser, readJob } from '@/lib/gameGenerationCache';
 import { createGenerationJobId, startGameGenerationJob, type StartGameGenerationInput } from '@/lib/gameGenerationWorker';
 import { getGenerationQueueStatus } from '@/lib/generationQueue';
+import { getGenerationJobRecord } from '@/lib/generationJobStore';
 
 export const runtime = 'nodejs';
 
@@ -89,6 +90,11 @@ export async function GET(req: NextRequest) {
     expiresAt: record.expiresAt,
     ...(record.error ? { jobError: record.error } : {}),
   };
+
+  try {
+    const jobRecord = await getGenerationJobRecord(userId, jobId);
+    if (jobRecord?.resultSaveId) payload.resultSaveId = jobRecord.resultSaveId;
+  } catch {}
 
   if (record.state === 'completed' && includeResult) {
     payload.result = record.result;

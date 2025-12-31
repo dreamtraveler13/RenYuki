@@ -1,52 +1,55 @@
 import crypto from 'crypto';
-import fs from 'fs/promises';
-import path from 'path';
 import type { PlazaGame, PlazaGameSummary, SaveFile } from '@/types';
-import { getDb, jsonParse, jsonStringify } from './db';
+import { getDb, jsonStringify } from './db';
+import { ensureMinioBucket, getMinioBucket, getMinioClient } from './minio';
 
-const getPlazaStorageDir = () => {
-  const dir = process.env.PLAZA_STORAGE_DIR || process.env.ZEABUR_VOLUME_PATH || '';
-  return dir && dir.trim().length > 0 ? dir.trim() : path.join(process.cwd(), 'plaza_storage');
-};
+const MINIO_PREFIX = 'minio:';
+
+const buildPlazaSaveKey = (id: string) => `plaza-saves/${id}.json`;
+
+const normalizeMinioKey = (savePath: string) =>
+  savePath.startsWith(MINIO_PREFIX) ? savePath.slice(MINIO_PREFIX.length) : savePath;
+
+const isMinioPath = (savePath: string) => savePath.startsWith(MINIO_PREFIX);
+
+const streamToString = async (stream: NodeJS.ReadableStream): Promise<string> =>
+  await new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    stream.on('error', reject);
+  });
 
 const writePlazaSaveFile = async (id: string, save: SaveFile): Promise<string> => {
-  const dir = getPlazaStorageDir();
-  await fs.mkdir(dir, { recursive: true });
-  const filename = `${id}.json`;
-  const filePath = path.join(dir, filename);
-  await fs.writeFile(filePath, JSON.stringify(save), 'utf8');
-  return filename; // store relative filename in DB
+  await ensureMinioBucket();
+  const client = getMinioClient();
+  const bucket = getMinioBucket();
+  const key = buildPlazaSaveKey(id);
+  const body = Buffer.from(JSON.stringify(save), 'utf8');
+  await client.putObject(bucket, key, body, body.length, { 'Content-Type': 'application/json' });
+  return `${MINIO_PREFIX}${key}`;
 };
 
 const readPlazaSaveFile = async (savePath: string): Promise<SaveFile> => {
-  const dir = getPlazaStorageDir();
-  const filePath = path.isAbsolute(savePath) ? savePath : path.join(dir, savePath);
-  const raw = await fs.readFile(filePath, 'utf8');
+  if (!isMinioPath(savePath)) {
+    throw new Error('Legacy plaza save is not supported');
+  }
+  await ensureMinioBucket();
+  const client = getMinioClient();
+  const bucket = getMinioBucket();
+  const key = normalizeMinioKey(savePath);
+  const stream = await client.getObject(bucket, key);
+  const raw = await streamToString(stream);
   return JSON.parse(raw) as SaveFile;
 };
 
 const deletePlazaSaveFile = async (savePath: string) => {
-  const dir = getPlazaStorageDir();
-  const filePath = path.isAbsolute(savePath) ? savePath : path.join(dir, savePath);
-  await fs.unlink(filePath);
-};
-
-const defaultSave: SaveFile = {
-  id: 0,
-  title: 'Untitled Story',
-  date: new Date().toLocaleString('zh-CN'),
-  heroineName: 'Unknown',
-  affinity: 0,
-  currentNodeId: '',
-  script: { title: 'Untitled Story', heroineName: 'Unknown', startNodeId: '', nodes: {} },
-  assets: {
-    heroine: { normal: '', happy: '', surprised: '', angry: '', shy: '' },
-    protagonist: { normal: '', happy: '', surprised: '', angry: '', shy: '' },
-    backgrounds: {},
-    music: {},
-    voice: {},
-  },
-  userProfile: { name: '', avatarBase64: '' },
+  if (!isMinioPath(savePath)) return;
+  await ensureMinioBucket();
+  const client = getMinioClient();
+  const bucket = getMinioBucket();
+  const key = normalizeMinioKey(savePath);
+  await client.removeObject(bucket, key);
 };
 
 const toSummaryFromSave = (params: {
@@ -86,8 +89,24 @@ export const listPlazaGames = async (): Promise<PlazaGameSummary[]> => {
     `
       SELECT id, title, date, heroine_name, affinity, cover_base64, plays, report_count, created_at
       FROM plaza_games
+      WHERE save_path LIKE 'minio:%'
       ORDER BY created_at DESC
     `
+  );
+  return rows.map(rowToSummary);
+};
+
+export const listPlazaGamesByUser = async (userId: string): Promise<PlazaGameSummary[]> => {
+  const db = await getDb();
+  const { rows } = await db.query(
+    `
+      SELECT id, title, date, heroine_name, affinity, cover_base64, plays, report_count, created_at
+      FROM plaza_games
+      WHERE uploader_user_id = $1
+        AND save_path LIKE 'minio:%'
+      ORDER BY created_at DESC
+    `,
+    [userId]
   );
   return rows.map(rowToSummary);
 };
@@ -97,18 +116,21 @@ export const getPlazaGame = async (id: string): Promise<PlazaGame | null> => {
   const { rows } = await db.query('SELECT * FROM plaza_games WHERE id = $1', [id]);
   if (!rows[0]) return null;
   const savePath = typeof rows[0].save_path === 'string' ? rows[0].save_path : '';
-  let save: SaveFile;
-  if (savePath.trim().length > 0) {
-    try {
-      save = await readPlazaSaveFile(savePath.trim());
-    } catch (err) {
-      console.error('read plaza save file failed', err);
-      save = jsonParse<SaveFile>(rows[0].save_json, defaultSave);
-    }
-  } else {
-    save = jsonParse<SaveFile>(rows[0].save_json, defaultSave);
+  if (!savePath.trim() || !isMinioPath(savePath.trim())) return null;
+  try {
+    const save = await readPlazaSaveFile(savePath.trim());
+    return { ...rowToSummary(rows[0]), save };
+  } catch (err) {
+    console.error('read plaza save file failed', err);
+    return null;
   }
-  return { ...rowToSummary(rows[0]), save };
+};
+
+export const getPlazaGameOwnerId = async (id: string): Promise<string | null> => {
+  const db = await getDb();
+  const { rows } = await db.query('SELECT uploader_user_id FROM plaza_games WHERE id = $1', [id]);
+  if (!rows[0]?.uploader_user_id) return null;
+  return String(rows[0].uploader_user_id);
 };
 
 export const publishPlazaGame = async (userId: string, save: SaveFile): Promise<PlazaGameSummary> => {

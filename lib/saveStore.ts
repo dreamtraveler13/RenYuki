@@ -1,6 +1,14 @@
 import type { GeneratedAssets, GameScript, SaveFile, UserProfile } from '@/types';
 import { getDb, jsonParse, jsonStringify } from './db';
 
+const TTL_MS = 10 * 60 * 1000;
+
+const pruneExpiredSaves = async (userId: string) => {
+  const db = await getDb();
+  const cutoff = new Date(Date.now() - TTL_MS).toISOString();
+  await db.query('DELETE FROM saves WHERE user_id = $1 AND created_at < $2', [userId, cutoff]);
+};
+
 const rowToSave = (row: any): SaveFile => ({
   id: Number(row.id),
   title: String(row.title || 'Untitled Story'),
@@ -15,6 +23,7 @@ const rowToSave = (row: any): SaveFile => ({
 });
 
 export const listSaves = async (userId: string): Promise<SaveFile[]> => {
+  await pruneExpiredSaves(userId);
   const db = await getDb();
   const { rows } = await db.query('SELECT * FROM saves WHERE user_id = $1 ORDER BY id DESC', [userId]);
   return rows.map(rowToSave);
@@ -29,6 +38,7 @@ export const createSave = async (params: {
   affinity: number;
   memoryCoverBase64?: string;
 }): Promise<SaveFile> => {
+  await pruneExpiredSaves(params.userId);
   const db = await getDb();
   const now = new Date();
   const id = now.getTime();
@@ -73,6 +83,7 @@ export const createSave = async (params: {
 };
 
 export const restoreSave = async (userId: string, saveData: SaveFile): Promise<SaveFile> => {
+  await pruneExpiredSaves(userId);
   const db = await getDb();
   const now = new Date();
   const newSave: SaveFile = {
@@ -105,6 +116,27 @@ export const restoreSave = async (userId: string, saveData: SaveFile): Promise<S
   );
 
   return newSave;
+};
+
+export const updateSaveAssets = async (
+  userId: string,
+  id: number,
+  assets: GeneratedAssets,
+  memoryCoverBase64?: string
+): Promise<SaveFile | null> => {
+  await pruneExpiredSaves(userId);
+  const db = await getDb();
+  const { rows } = await db.query(
+    `
+      UPDATE saves
+      SET assets_json = $3::jsonb,
+          memory_cover_base64 = $4
+      WHERE id = $1 AND user_id = $2
+      RETURNING *
+    `,
+    [id, userId, jsonStringify(assets), memoryCoverBase64 || null]
+  );
+  return rows[0] ? rowToSave(rows[0]) : null;
 };
 
 export const deleteSave = async (userId: string, id: number) => {

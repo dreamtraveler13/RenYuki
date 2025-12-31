@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import type { AccountUser } from '../types';
 import { authLogin, authRegister } from '../services/accountService';
 import Button from './Button';
@@ -17,6 +17,7 @@ const LoginScreen: React.FC<Props> = ({ onLoggedIn, onEnterPlazaAsGuest }) => {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const fingerprintPromiseRef = useRef<Promise<string> | null>(null);
 
   const isValid = useMemo(() => {
     if (!username.trim()) return false;
@@ -25,15 +26,33 @@ const LoginScreen: React.FC<Props> = ({ onLoggedIn, onEnterPlazaAsGuest }) => {
     return true;
   }, [mode, password, username]);
 
+  const getFingerprint = async () => {
+    if (!fingerprintPromiseRef.current) {
+      fingerprintPromiseRef.current = (async () => {
+        const { default: FingerprintJS } = await import('@fingerprintjs/fingerprintjs');
+        const fp = await FingerprintJS.load();
+        const result = await fp.get();
+        return result.visitorId;
+      })();
+    }
+    return await fingerprintPromiseRef.current;
+  };
+
   const handleSubmit = async () => {
     if (submitting || !isValid) return;
     setSubmitting(true);
     setErrorMessage(null);
     try {
+      const fingerprint = await getFingerprint().catch(() => '');
       const user =
         mode === 'login'
-          ? await authLogin({ username, password })
-          : await authRegister({ username, password, displayName: displayName.trim() || undefined });
+          ? await authLogin({ username, password, ...(fingerprint ? { fingerprint } : {}) })
+          : await authRegister({
+              username,
+              password,
+              displayName: displayName.trim() || undefined,
+              fingerprint: fingerprint || undefined,
+            });
       onLoggedIn(user);
     } catch (err: any) {
       setErrorMessage(err?.message || '身份验证失败');

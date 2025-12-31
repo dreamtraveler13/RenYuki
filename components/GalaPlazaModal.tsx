@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlazaGameSummary, SaveFile } from '../types';
 import { deletePlazaGame, getPlazaGame, listPlazaGames } from '../services/plazaService';
 
@@ -9,29 +9,32 @@ interface Props {
   onClose: () => void;
   onPlaySave: (save: SaveFile) => void;
   isAdmin?: boolean;
+  hasAccountUser?: boolean;
 }
 
-const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = false }) => {
+const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = false, hasAccountUser = false }) => {
   const [games, setGames] = useState<PlazaGameSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'all' | 'mine'>('all');
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     setErrorMessage(null);
     setLoading(true);
-    listPlazaGames()
+    listPlazaGames({ mine: viewMode === 'mine' })
       .then((items) => setGames(items))
       .catch((err: any) => setErrorMessage(err?.message || '加载失败'))
       .finally(() => setLoading(false));
-  };
+  }, [viewMode]);
 
   useEffect(() => {
     if (!open) return;
     refresh();
-  }, [open]);
+  }, [open, refresh]);
 
   useEffect(() => {
     if (!open) return;
@@ -45,8 +48,7 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = 
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, refresh]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -73,7 +75,7 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = 
   };
 
   const remove = async (id: string) => {
-    if (!isAdmin) return;
+    if (!isAdmin && viewMode !== 'mine') return;
     if (deletingId || loadingId) return;
     const ok = window.confirm('确定要从嘎拉广场删除这个游戏吗？此操作不可撤销。');
     if (!ok) return;
@@ -89,6 +91,30 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = 
     }
   };
 
+  const copyLink = async (id: string) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const url = origin ? `${origin}/g/${id}` : `/g/${id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopyMessage('链接已复制');
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        setCopyMessage('链接已复制');
+      } catch {
+        setCopyMessage('复制失败，请手动复制地址栏');
+      }
+    }
+    window.setTimeout(() => setCopyMessage(null), 2000);
+  };
+
   if (!open) return null;
 
   return (
@@ -102,6 +128,14 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = 
              <div className="text-[9px] font-mono-tech text-gray-400 tracking-widest mt-1">公共档案馆</div>
           </div>
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setViewMode((prev) => (prev === 'all' ? 'mine' : 'all'))}
+              className="text-[10px] font-bold uppercase tracking-widest hover:bg-black hover:text-white px-3 py-1 border border-transparent hover:border-black transition-all"
+              disabled={!hasAccountUser}
+              title={hasAccountUser ? '管理自己上传的内容' : '请先登录'}
+            >
+              {viewMode === 'all' ? '我的上传' : '全部游戏'}
+            </button>
             <button
               onClick={refresh}
               className="text-[10px] font-bold uppercase tracking-widest hover:bg-black hover:text-white px-3 py-1 border border-transparent hover:border-black transition-all"
@@ -140,6 +174,11 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = 
             {errorMessage && (
               <div className="mt-2 text-xs font-mono-tech text-red-600 bg-red-50 p-2 border border-red-200">
                 错误: {errorMessage}
+              </div>
+            )}
+            {copyMessage && (
+              <div className="mt-2 text-xs font-mono-tech text-green-700 bg-green-50 p-2 border border-green-200">
+                {copyMessage}
               </div>
             )}
           </div>
@@ -201,8 +240,15 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = 
                     >
                       {busy ? '加载中...' : '开始游戏'}
                     </button>
+                    <button
+                      onClick={() => copyLink(g.id)}
+                      disabled={!!loadingId || !!deletingId}
+                      className="px-3 py-2 text-xs font-bold border border-gray-200 hover:border-black hover:bg-white transition-colors"
+                    >
+                      复制链接
+                    </button>
                     
-                    {isAdmin && (
+                    {(isAdmin || viewMode === 'mine') && (
                       <button
                         onClick={() => remove(g.id)}
                         disabled={!!loadingId || !!deletingId}

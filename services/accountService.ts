@@ -48,7 +48,7 @@ export const authMe = async (): Promise<AccountUser> => {
   return data.user;
 };
 
-export const authLogin = async (params: { username: string; password: string }): Promise<AccountUser> => {
+export const authLogin = async (params: { username: string; password: string; fingerprint?: string }): Promise<AccountUser> => {
   const data = await requestJson<{ user: AccountUser }>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify(params),
@@ -60,6 +60,7 @@ export const authRegister = async (params: {
   username: string;
   password: string;
   displayName?: string;
+  fingerprint?: string;
 }): Promise<AccountUser> => {
   const data = await requestJson<{ user: AccountUser }>('/api/auth/register', {
     method: 'POST',

@@ -171,5 +171,6 @@ export interface GameGenerationJobStatus {
   expiresAt: string;
   jobError?: string;
   result?: GameGenerationResult;
+  resultSaveId?: number;
   debug?: unknown[];
 }

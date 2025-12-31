@@ -12,6 +12,8 @@ import {
 } from '@/lib/aiServer';
 import { refundUserCoins } from '@/lib/userStore';
 import { generateHeroineTts } from '@/lib/ttsServer';
+import { createGenerationJobRecord, updateGenerationJobRecord } from '@/lib/generationJobStore';
+import { createSave } from '@/lib/saveStore';
 
 export interface StartGameGenerationInput {
   protagonistName?: string;
@@ -58,118 +60,52 @@ const sanitizeScenes = (scenes: Array<{ name: string; prompt: string }>) => {
 };
 
 const generateProtagonistSet = async (input: StartGameGenerationInput) => {
-  const isMax = input.maxMode === true || input.maxMode === 1 || input.maxMode === '1';
   const mimeType = input.protagonistMimeType || 'image/jpeg';
 
   if (input.protagonistPhotoBase64) {
-    const emotionSet = isMax
-      ? [
-          ['normal', 'confident smile'],
-          ['happy', 'bright happy smile'],
-          ['surprised', 'surprised, jaw drop, shock'],
-          ['angry', 'annoyed, angry, slightly frowning'],
-        ]
-      : [
-          ['normal', 'confident smile'],
-          ['surprised', 'surprised, jaw drop, shock'],
-        ];
-
+    const emotionSet: Array<keyof GeneratedAssets['protagonist']> = ['normal', 'happy', 'shy'];
     const urls = await Promise.all(
-      emotionSet.map(([, emotion]) => generateProtagonist(emotion as string, input.protagonistPhotoBase64, undefined, mimeType))
+      emotionSet.map((emotion) => generateProtagonist(emotion, input.protagonistPhotoBase64, undefined, mimeType))
     );
     const images = await Promise.all(urls.map(downloadToBase64));
     const out: any = {};
-    emotionSet.forEach(([key], i) => {
-      out[key] = images[i];
+    emotionSet.forEach((key, i) => {
+      out[key] = images[i] || '';
     });
+    if (!out.normal) out.normal = images[0] || '';
     if (!out.happy) out.happy = out.normal;
-    if (!out.angry) out.angry = out.surprised || out.normal;
-    if (!out.shy) out.shy = out.happy;
-    return out;
-  }
-
-  const normalUrl = await generateProtagonist('confident smile');
-  const normal = await downloadToBase64(normalUrl);
-
-  if (isMax) {
-    const [happyUrl, surprisedUrl, angryUrl] = await Promise.all([
-      generateProtagonist('bright happy smile', undefined, normal),
-      generateProtagonist('surprised, jaw drop, shock', undefined, normal),
-      generateProtagonist('annoyed, angry, slightly frowning', undefined, normal),
-    ]);
-    const [happy, surprised, angry] = await Promise.all([
-      downloadToBase64(happyUrl),
-      downloadToBase64(surprisedUrl),
-      downloadToBase64(angryUrl),
-    ]);
-    return { normal, happy, surprised, angry, shy: happy };
-  }
-
-  const surprisedUrl = await generateProtagonist('surprised, jaw drop, shock', undefined, normal);
-  const surprised = await downloadToBase64(surprisedUrl);
-  return { normal, happy: normal, surprised, angry: surprised, shy: normal };
-};
-
-const generateHeroineSet = async (input: StartGameGenerationInput) => {
-  const isMax = input.maxMode === true || input.maxMode === 1 || input.maxMode === '1';
-  const mimeType = input.heroineMimeType || 'image/jpeg';
-
-  if (input.heroinePhotoBase64) {
-    const emotionSet = isMax
-      ? [
-          ['normal', 'gentle smile'],
-          ['happy', 'laughing happily'],
-          ['shy', 'blushing shy'],
-          ['surprised', 'surprised, wide eyes, slight gasp'],
-          ['angry', 'pouting, angry, cheeks slightly puffed'],
-          ['sad', 'sad, watery eyes, holding back tears'],
-        ]
-      : [
-          ['normal', 'gentle smile'],
-          ['happy', 'laughing happily'],
-          ['shy', 'blushing shy'],
-        ];
-
-    const urls = await Promise.all(
-      emotionSet.map(([, emotion]) => generateHeroine(emotion as string, undefined, input.heroinePhotoBase64, mimeType))
-    );
-    const images = await Promise.all(urls.map(downloadToBase64));
-    const out: any = {};
-    emotionSet.forEach(([key], i) => {
-      out[key] = images[i];
-    });
+    if (!out.shy) out.shy = out.normal;
     if (!out.surprised) out.surprised = out.normal;
     if (!out.angry) out.angry = out.normal;
     return out;
   }
 
-  const normalUrl = await generateHeroine('gentle smile');
-  const normal = await downloadToBase64(normalUrl);
+  throw new Error('必须上传男主照片');
+};
 
-  if (isMax) {
-    const [happyUrl, shyUrl, surprisedUrl, angryUrl, sadUrl] = await Promise.all([
-      generateHeroine('laughing happily', normal, undefined),
-      generateHeroine('blushing shy', normal, undefined),
-      generateHeroine('surprised, wide eyes, slight gasp', normal, undefined),
-      generateHeroine('pouting, angry, cheeks slightly puffed', normal, undefined),
-      generateHeroine('sad, watery eyes, holding back tears', normal, undefined),
-    ]);
-    const [happy, shy, surprised, angry, sad] = await Promise.all([
-      downloadToBase64(happyUrl),
-      downloadToBase64(shyUrl),
-      downloadToBase64(surprisedUrl),
-      downloadToBase64(angryUrl),
-      downloadToBase64(sadUrl),
-    ]);
-    return { normal, happy, shy, surprised, angry, sad };
+const generateHeroineSet = async (input: StartGameGenerationInput) => {
+  const mimeType = input.heroineMimeType || 'image/jpeg';
+
+  if (input.heroinePhotoBase64) {
+    const emotionSet: Array<keyof GeneratedAssets['heroine']> = ['normal', 'shy', 'happy', 'surprised'];
+    const urls = await Promise.all(
+      emotionSet.map((emotion) => generateHeroine(emotion, undefined, input.heroinePhotoBase64, mimeType))
+    );
+    const images = await Promise.all(urls.map(downloadToBase64));
+    const out: any = {};
+    emotionSet.forEach((key, i) => {
+      out[key] = images[i] || '';
+    });
+    if (!out.normal) out.normal = images[0] || '';
+    if (!out.happy) out.happy = out.normal;
+    if (!out.shy) out.shy = out.normal;
+    if (!out.surprised) out.surprised = out.normal;
+    if (!out.angry) out.angry = out.normal;
+    if (!out.sad) out.sad = out.shy || out.normal;
+    return out;
   }
 
-  const [happyUrl, shyUrl] = await Promise.all([
-    generateHeroine('laughing happily', normal, undefined),
-    generateHeroine('blushing shy', normal, undefined),
-  ]);
-  const [happy, shy] = await Promise.all([downloadToBase64(happyUrl), downloadToBase64(shyUrl)]);
-  return { normal, happy, shy, surprised: normal, angry: normal };
+  throw new Error('女主照片必传');
 };
 
 const generateBackgrounds = async (
@@ -294,8 +230,18 @@ const buildGamePayload = async (
 
   const scriptPromise = (async () => {
     await onUpdate({ progress: 78, message: '正在生成剧本' });
+    const heroineEmotions: Array<StoryNode['emotion']> = ['normal', 'shy', 'happy', 'surprised'];
+    const hasProtagonistSprite = isMax && !!input.protagonistPhotoBase64;
+    const protagonistEmotions: Array<StoryNode['emotion']> = hasProtagonistSprite
+      ? ['normal', 'happy', 'shy']
+      : heroineEmotions;
     const script = await generateScript(protagonistName, heroineName, plotDescription, {
       backgroundScenes: scenes,
+      emotionGuide: {
+        heroineEmotions,
+        protagonistEmotions,
+        hasProtagonistSprite,
+      },
     });
     const titleFromUser = plotDescription.length > 0 ? plotDescription : script.title;
     return { ...script, title: titleFromUser };
@@ -353,6 +299,15 @@ export const startGameGenerationJob = async (params: {
 }): Promise<{ accepted: boolean }> => {
   const { userId, jobId, input, coinCost } = params;
   await createJob<GeneratedGamePayload>(userId, jobId, '排队中');
+  try {
+    await createGenerationJobRecord({
+      id: jobId,
+      userId,
+      input,
+      coinCost,
+      message: '排队中',
+    });
+  } catch {}
 
   const run = async () => {
     try {
@@ -361,6 +316,11 @@ export const startGameGenerationJob = async (params: {
         progress: 1,
         message: '开始生成…',
       });
+      await updateGenerationJobRecord(userId, jobId, {
+        status: 'running',
+        progress: 1,
+        message: '开始生成…',
+      }).catch(() => {});
 
       const { result, debug } = await withAiDebug(() =>
         buildGamePayload(input, async (patch) => {
@@ -369,8 +329,30 @@ export const startGameGenerationJob = async (params: {
             ...(typeof patch.progress === 'number' ? { progress: patch.progress } : {}),
             ...(typeof patch.message === 'string' ? { message: patch.message } : {}),
           });
+          await updateGenerationJobRecord(userId, jobId, {
+            status: 'running',
+            ...(typeof patch.progress === 'number' ? { progress: patch.progress } : {}),
+            ...(typeof patch.message === 'string' ? { message: patch.message } : {}),
+          }).catch(() => {});
         })
       );
+
+      try {
+        const save = await createSave({
+          userId,
+          script: result.script,
+          assets: result.assets,
+          userProfile: result.userProfile,
+          currentNodeId: result.initialNodeId,
+          affinity: result.initialAffinity,
+          memoryCoverBase64: result.assets.heroine?.normal,
+        });
+        await updateGenerationJobRecord(userId, jobId, {
+          resultSaveId: save.id,
+        }).catch(() => {});
+      } catch (err) {
+        console.warn('auto-save generated game failed', err);
+      }
 
       await updateJob<GeneratedGamePayload>(userId, jobId, {
         state: 'completed',
@@ -379,6 +361,11 @@ export const startGameGenerationJob = async (params: {
         result,
         ...(debug ? { debug } : {}),
       });
+      await updateGenerationJobRecord(userId, jobId, {
+        status: 'completed',
+        progress: 100,
+        message: '生成完成',
+      }).catch(() => {});
     } catch (err: any) {
       const message = err?.message || '生成失败';
       try {
@@ -390,6 +377,13 @@ export const startGameGenerationJob = async (params: {
         message: '生成失败',
         error: message,
       });
+      await updateGenerationJobRecord(userId, jobId, {
+        status: 'failed',
+        progress: 100,
+        message: '生成失败',
+        error: message,
+        refundedAt: new Date().toISOString(),
+      }).catch(() => {});
     }
   };
 
@@ -401,6 +395,13 @@ export const startGameGenerationJob = async (params: {
       message: '排队失败',
       error: '服务器繁忙，请稍后再试',
     });
+    await updateGenerationJobRecord(userId, jobId, {
+      status: 'failed',
+      progress: 100,
+      message: '排队失败',
+      error: '服务器繁忙，请稍后再试',
+      refundedAt: new Date().toISOString(),
+    }).catch(() => {});
     return { accepted: false };
   }
 
@@ -410,6 +411,11 @@ export const startGameGenerationJob = async (params: {
       progress: 0,
       message: `排队中（前面还有 ${queued.position - 1} 个任务）`,
     });
+    await updateGenerationJobRecord(userId, jobId, {
+      status: 'queued',
+      progress: 0,
+      message: `排队中（前面还有 ${queued.position - 1} 个任务）`,
+    }).catch(() => {});
   }
 
   return { accepted: true };

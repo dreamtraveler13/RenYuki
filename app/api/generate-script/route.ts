@@ -8,7 +8,8 @@ export async function POST(req: NextRequest) {
   const userId = getUserIdFromRequest(req);
   if (!userId) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
-  const { protagonistName, heroineName, plotDescription, maxMode, backgroundScenes } = await req.json();
+  const payload = (await req.json().catch(() => ({} as Record<string, any>))) as Record<string, any>;
+  const { protagonistName, heroineName, plotDescription, maxMode, backgroundScenes } = payload || {};
   if (!protagonistName) return NextResponse.json({ error: 'protagonistName is required' }, { status: 400 });
 
   const acceptRes = await enforcePolicyAccepted({ userId });
@@ -46,18 +47,41 @@ export async function POST(req: NextRequest) {
           .filter((s: any) => typeof s.name === 'string' && s.name.trim().length > 0)
           .slice(0, 3)
       : [];
+    const emotionGuideRaw: Record<string, any> | null =
+      payload?.emotionGuide && typeof payload.emotionGuide === 'object' ? payload.emotionGuide : null;
+    const emotionGuide = emotionGuideRaw
+      ? {
+          heroineEmotions: Array.isArray(emotionGuideRaw.heroineEmotions) ? emotionGuideRaw.heroineEmotions : undefined,
+          protagonistEmotions: Array.isArray(emotionGuideRaw.protagonistEmotions) ? emotionGuideRaw.protagonistEmotions : undefined,
+          hasProtagonistSprite:
+            emotionGuideRaw.hasProtagonistSprite === true ||
+            emotionGuideRaw.hasProtagonistSprite === 1 ||
+            emotionGuideRaw.hasProtagonistSprite === '1'
+              ? true
+              : emotionGuideRaw.hasProtagonistSprite === false ||
+                emotionGuideRaw.hasProtagonistSprite === 0 ||
+                emotionGuideRaw.hasProtagonistSprite === '0'
+                ? false
+                : undefined,
+        }
+      : undefined;
     const { result, debug } = await withAiDebug(() =>
       generateScript(
         protagonistName,
         heroineName,
         plotDescription,
-        scenes.length > 0 ? { backgroundScenes: scenes } : undefined
+        scenes.length > 0 || emotionGuide
+          ? {
+              ...(scenes.length > 0 ? { backgroundScenes: scenes } : {}),
+              ...(emotionGuide ? { emotionGuide } : {}),
+            }
+          : undefined
       )
     );
     const titleFromUser =
       typeof plotDescription === 'string' && plotDescription.trim().length > 0 ? plotDescription.trim() : result.title;
-    const payload = { ...result, title: titleFromUser };
-    return NextResponse.json(debug ? { ...payload, debug } : payload);
+    const responsePayload = { ...result, title: titleFromUser };
+    return NextResponse.json(debug ? { ...responsePayload, debug } : responsePayload);
   } catch (err: any) {
     console.error('generate-script failed', err);
     try {

@@ -134,6 +134,27 @@ const guessMimeTypeFromBase64 = (base64: string, fallback: string) => {
   return fallback || 'image/jpeg';
 };
 
+const DEFAULT_EMOTIONS: Array<StoryNode['emotion']> = ['normal', 'happy', 'surprised', 'angry', 'shy', 'sad'];
+
+const normalizeEmotionKey = (raw: string) => {
+  const key = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (key === 'surprise') return 'surprised';
+  if (key === 'neutral') return 'normal';
+  return key;
+};
+
+const sanitizeEmotionList = (raw: unknown, fallback: Array<StoryNode['emotion']> = DEFAULT_EMOTIONS) => {
+  if (!Array.isArray(raw)) return [...fallback];
+  const allowed = new Set(DEFAULT_EMOTIONS);
+  const cleaned = raw
+    .map((item) => (typeof item === 'string' ? normalizeEmotionKey(item) : ''))
+    .filter((item) => allowed.has(item as StoryNode['emotion'])) as Array<StoryNode['emotion']>;
+  const uniq = Array.from(new Set(cleaned));
+  if (uniq.length === 0) return [...fallback];
+  if (!uniq.includes('normal')) uniq.unshift('normal');
+  return uniq;
+};
+
 const ensureLingyaKey = () => {
   const key = process.env.LINGYAAI_API_KEY || process.env.API_KEY;
   if (!key) throw new Error('LINGYAAI_API_KEY is missing. Set it in your server environment.');
@@ -515,7 +536,11 @@ const unwrapScriptPayload = (raw: any): any => {
 
 const normalizeNodes = (
   raw: any,
-  opts?: { allowedBackgroundPrompts?: string[] }
+  opts?: {
+    allowedBackgroundPrompts?: string[];
+    allowedHeroineEmotions?: Array<StoryNode['emotion']>;
+    allowedProtagonistEmotions?: Array<StoryNode['emotion']>;
+  }
 ): { nodes: Record<string, StoryNode>; startNodeId: string } => {
   raw = unwrapScriptPayload(raw);
   const MIN_NODES = 6;
@@ -544,7 +569,8 @@ const normalizeNodes = (
   const allowedPromptsFromCaller =
     opts?.allowedBackgroundPrompts?.map((p) => (typeof p === 'string' ? p.trim() : '')).filter(Boolean) || [];
   const allowedPrompts: string[] = [];
-  const allowedEmotions: Array<StoryNode['emotion']> = ['normal', 'happy', 'surprised', 'angry', 'shy', 'sad'];
+  const allowedHeroineEmotions = sanitizeEmotionList(opts?.allowedHeroineEmotions);
+  const allowedProtagonistEmotions = sanitizeEmotionList(opts?.allowedProtagonistEmotions);
   const allowedBgms = ['bgm_bossa', 'bgm_playful', 'bgm_piano', 'bgm_night', 'bgm_sad', 'bgm_dream', 'bgm_morning'];
 
   let sanitized: StoryNode[] = [];
@@ -571,7 +597,9 @@ const normalizeNodes = (
             : SpeakerType.PROTAGONIST;
 
       const emotionRaw = typeof node.emotion === 'string' ? (node.emotion as StoryNode['emotion']) : 'normal';
-      const emotion = allowedEmotions.includes(emotionRaw) ? emotionRaw : 'normal';
+      const allowedForSpeaker = speaker === SpeakerType.HEROINE ? allowedHeroineEmotions : allowedProtagonistEmotions;
+      const fallbackEmotion = allowedForSpeaker.includes('normal') ? 'normal' : allowedForSpeaker[0] || 'normal';
+      const emotion = allowedForSpeaker.includes(emotionRaw) ? emotionRaw : fallbackEmotion;
 
       const nodeTypeRaw = typeof node.nodeType === 'string' ? node.nodeType.trim() : '';
       const nodeType: StoryNode['nodeType'] =
@@ -762,6 +790,12 @@ export type BackgroundScene = {
   prompt: string;
 };
 
+export type EmotionGuide = {
+  heroineEmotions?: Array<StoryNode['emotion']>;
+  protagonistEmotions?: Array<StoryNode['emotion']>;
+  hasProtagonistSprite?: boolean;
+};
+
 const sanitizeBackgroundScenes = (raw: any): BackgroundScene[] => {
   const asArray: any[] = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? (raw.scenes ?? raw.backgrounds ?? raw.items ?? []) : [];
   const items: BackgroundScene[] = asArray
@@ -835,12 +869,16 @@ export const generateScript = async (
   protagonistName: string,
   heroineName?: string,
   plotDescription?: string,
-  opts?: { backgroundScenes?: BackgroundScene[] }
+  opts?: { backgroundScenes?: BackgroundScene[]; emotionGuide?: EmotionGuide }
 ): Promise<GameScript> => {
   const targetHeroine = heroineName ? heroineName.trim() : 'Yuki';
   const customPlot = plotDescription ? `Specific Situation: "${plotDescription}"` : 'A fateful encounter at school.';
   const backgroundScenes = sanitizeBackgroundScenes(opts?.backgroundScenes || []);
   const allowedBackgroundNames = backgroundScenes.map((s) => s.name);
+  const heroineEmotions = sanitizeEmotionList(opts?.emotionGuide?.heroineEmotions);
+  const protagonistEmotionsRaw = sanitizeEmotionList(opts?.emotionGuide?.protagonistEmotions);
+  const hasProtagonistSprite = opts?.emotionGuide?.hasProtagonistSprite ?? true;
+  const protagonistEmotions = hasProtagonistSprite ? protagonistEmotionsRaw : heroineEmotions;
   const backgroundGuide =
     backgroundScenes.length > 0
       ? `
@@ -853,6 +891,16 @@ export const generateScript = async (
     - Do NOT invent new background names.
   `
       : '';
+  const emotionGuide = `
+    SPRITE EMOTION AVAILABILITY (STRICT):
+    - Heroine expressions: ${heroineEmotions.join(', ')}
+    - Protagonist expressions: ${
+      hasProtagonistSprite
+        ? protagonistEmotions.join(', ')
+        : `NOT AVAILABLE (use heroine list for any protagonist line): ${heroineEmotions.join(', ')}`
+    }
+    - For each node, the "emotion" MUST be chosen from the list that matches its speaker.
+  `;
   const prompt = `
     You are the LEAD SCENARIO WRITER for a Japanese school romance visual novel (Galgame), like Senren * Banka (千恋＊万花).
     MISSION: Create a DEEP, immersive, and emotionally intense scene.
@@ -876,6 +924,7 @@ export const generateScript = async (
       - JP: 「そ、そんなに真剣に見ないでよ……勘違いしちゃう……」/「ね、ねえ……放課後、一緒に帰らない？」
 
     VISUAL & AUDIO DIRECTION:
+    ${emotionGuide}
     - BACKGROUNDS (SCENE CONTROL, VERY IMPORTANT):
       - DEFAULT: Keep the same background for many consecutive nodes; The background only changes when the male and female leads physically move..
       - SCENE SWITCH RULE: ONLY change background when BOTH the Protagonist and the Heroine clearly move to a different physical location (for example: classroom → rooftop, school → home).
@@ -903,7 +952,7 @@ export const generateScript = async (
 
     SCHEMA CONSTRAINTS:
     - speaker: "Heroine" or "Protagonist".
-    - emotion: "normal", "happy", "surprised", "angry", "shy", "sad".
+    - emotion: MUST be chosen from the available expressions for the current speaker (see Sprite Emotion Availability).
 
     EMOTION CONSISTENCY (IMPORTANT):
     - Emotion selects the sprite. Minimize the switching of emotions.
@@ -984,7 +1033,16 @@ export const generateScript = async (
 
     const { nodes, startNodeId } = normalizeNodes(
       rawData,
-      allowedBackgroundNames.length > 0 ? { allowedBackgroundPrompts: allowedBackgroundNames } : undefined
+      allowedBackgroundNames.length > 0
+        ? {
+            allowedBackgroundPrompts: allowedBackgroundNames,
+            allowedHeroineEmotions: heroineEmotions,
+            allowedProtagonistEmotions: protagonistEmotions,
+          }
+        : {
+            allowedHeroineEmotions: heroineEmotions,
+            allowedProtagonistEmotions: protagonistEmotions,
+          }
     );
 
     return {
@@ -1020,10 +1078,17 @@ export async function* continueStoryStream(params: {
   userChoiceText: string;
   affinity?: number;
   allowedBackgroundPrompts: string[];
+  allowedHeroineEmotions?: Array<StoryNode['emotion']>;
+  allowedProtagonistEmotions?: Array<StoryNode['emotion']>;
+  hasProtagonistSprite?: boolean;
   recentDialogue: Array<{ speaker: string; textCN: string }>;
   signal?: AbortSignal;
 }): AsyncGenerator<ContinueStoryStreamEvent> {
   const { protagonistName, heroineName, userChoiceText, affinity, allowedBackgroundPrompts, recentDialogue, signal } = params;
+  const heroineEmotions = sanitizeEmotionList(params.allowedHeroineEmotions);
+  const protagonistEmotionsRaw = sanitizeEmotionList(params.allowedProtagonistEmotions);
+  const hasProtagonistSprite = params.hasProtagonistSprite ?? true;
+  const protagonistEmotions = hasProtagonistSprite ? protagonistEmotionsRaw : heroineEmotions;
 
   const backgrounds = allowedBackgroundPrompts.length > 0 ? allowedBackgroundPrompts : [FALLBACK_BACKGROUND];
   const historyText = recentDialogue
@@ -1067,8 +1132,14 @@ export async function* continueStoryStream(params: {
     - DO NOT change background just for mood, angle, or small actions. Treat location changes as rare, important events.
     - Overall goal: As few distinct scenes as possible while keeping the story coherent.
 
-    AVAILABLE EMOTIONS (MUST choose from this list ONLY):
-    - normal, happy, surprised, angry, shy, sad
+    AVAILABLE EMOTIONS (MUST choose from these lists ONLY):
+    - Heroine: ${heroineEmotions.join(', ')}
+    - Protagonist: ${
+      hasProtagonistSprite
+        ? protagonistEmotions.join(', ')
+        : `NOT AVAILABLE (use heroine list for any protagonist line): ${heroineEmotions.join(', ')}`
+    }
+    - For each node, choose the emotion from the list that matches its speaker.
 
     EMOTION CONSISTENCY (IMPORTANT):
     - Emotion selects the sprite. Do NOT switch emotions frequently.
@@ -1106,7 +1177,7 @@ export async function* continueStoryStream(params: {
       "speaker": "Heroine" | "Protagonist",
       "textCN": "string",
       "textJP": "string (Heroine only, optional)",
-      "emotion": "normal" | "happy" | "surprised" | "angry" | "shy" | "sad",
+      "emotion": "string (must be one of the available expressions for the current speaker)",
       "backgroundPrompt": "string (must be one of the available backgrounds)",
       "bgm": "bgm_bossa" | "bgm_playful" | "bgm_piano" | "bgm_night" | "bgm_sad" | "bgm_dream" | "bgm_morning",
       "nodeType": "user_choice" (ONLY for the last node when ending=false),
@@ -1135,7 +1206,6 @@ export async function* continueStoryStream(params: {
   let lastBgm: string | undefined;
   let lastBg = backgrounds[0] || FALLBACK_BACKGROUND;
 
-  const allowedEmotions: Array<StoryNode['emotion']> = ['normal', 'happy', 'surprised', 'angry', 'shy', 'sad'];
   const allowedBgms = ['bgm_bossa', 'bgm_playful', 'bgm_piano', 'bgm_night', 'bgm_sad', 'bgm_dream', 'bgm_morning'];
 
   const sanitizeOne = (node: any, newId: string, nextId?: string): StoryNode | null => {
@@ -1148,7 +1218,9 @@ export async function* continueStoryStream(params: {
           : SpeakerType.PROTAGONIST;
 
     const emotionRaw = typeof node?.emotion === 'string' ? node.emotion.trim() : 'normal';
-    const emotion = allowedEmotions.includes(emotionRaw as any) ? (emotionRaw as any) : 'normal';
+    const allowedForSpeaker = speaker === SpeakerType.HEROINE ? heroineEmotions : protagonistEmotions;
+    const fallbackEmotion = allowedForSpeaker.includes('normal') ? 'normal' : allowedForSpeaker[0] || 'normal';
+    const emotion = allowedForSpeaker.includes(emotionRaw as any) ? (emotionRaw as any) : fallbackEmotion;
 
     const textCN =
       typeof node?.textCN === 'string'
@@ -1344,6 +1416,57 @@ const getImageUrlFromParts = async (parts: any[], aspectRatio = '1:1') => {
   });
 };
 
+const PROTAGONIST_BASE_PROMPT = `
+Realistic male character matching the reference image.
+Same face, hairstyle, age, skin tone, and lighting as the reference.
+
+Wearing a black Japanese male DK school uniform (Gakuran).
+No outfit changes.
+
+Upper-body portrait, head to waist.
+Centered composition, eye-level view.
+
+Natural relaxed posture.
+Simple pose suitable for a galgame dialogue scene.
+
+Pure white background (#FFFFFF).
+`;
+
+const HEROINE_BASE_PROMPT = `
+CRITICAL INSTRUCTIONS:
+1. Identity lock: Face, hairstyle, and overall photographic style MUST match the reference image exactly.
+2. Do NOT stylize or beautify. Do NOT change face shape, hairstyle, age, skin tone, or lighting style.
+3. Clothing: black Japanese female JK school uniform (Seifuku). Keep clothing consistent with the reference; do NOT replace outfits or uniforms.
+4. Composition:upper-body portrait (head to waist), centered, eye-level.
+5. Feminine direction: posture and expression should feel gentle and feminine, but still natural and not exaggerated.
+6. Background: pure solid white (#FFFFFF). No text, no watermark, no extra people.
+`;
+
+const PROTAGONIST_EXPRESSION_PROMPTS: Record<string, string> = {
+  normal: 'Calm neutral expression, slight polite smile, relaxed eyes.',
+  happy: 'Warm friendly smile, cheerful but restrained, relaxed eyes.',
+  shy: 'Subtle shy smile, slight blush, eyes gently lowered.',
+  surprised: 'Mild surprise, eyes slightly widened, lips gently parted.',
+  angry: 'Mild annoyance, slightly furrowed brows, restrained expression.',
+};
+
+const HEROINE_EXPRESSION_PROMPTS: Record<string, string> = {
+  normal: 'Gentle neutral smile, soft eyes, calm feminine mood.',
+  happy: 'Warm bright smile, cheerful yet soft, gentle eyes.',
+  shy: 'Slight blush, small shy smile, eyes softly averted.',
+  surprised: 'Mild surprise, eyes slightly widened, soft feminine expression.',
+  angry: 'Light pout, slightly furrowed brows, restrained and cute.',
+  sad: 'Soft sadness, slightly watery eyes, gentle downturned mouth.',
+};
+
+const buildSpritePrompt = (basePrompt: string, map: Record<string, string>, emotionRaw: string) => {
+  const normalized = normalizeEmotionKey(emotionRaw);
+  const expressionPrompt =
+    map[normalized] ||
+    `EXPRESSION: ${emotionRaw || 'calm neutral'}. Keep it subtle, natural, and not exaggerated.`;
+  return `${basePrompt}\n${expressionPrompt}`.trim();
+};
+
 export const generateProtagonist = async (
   emotion: string,
   userPhotoBase64?: string,
@@ -1351,25 +1474,11 @@ export const generateProtagonist = async (
   mimeType = 'image/jpeg'
 ): Promise<string> => {
   const parts: any[] = [];
-  let prompt = '';
+  const sourceBase64 = userPhotoBase64 || referenceImageBase64;
+  if (!sourceBase64) throw new Error('必须上传照片或提供参考图');
 
-  if (userPhotoBase64) {
-    parts.push({ inlineData: { mimeType, data: userPhotoBase64 } });
-    prompt = `
-      CRITICAL INSTRUCTION:
-      1. FACE/HEAD: Must be 100% PIXEL-PERFECT MATCH to the provided reference image.
-      2. BODY/POSE: Generate a NEW body pose matching: "${emotion}". Keep it subtle and natural (NO exaggerated action).
-      3. CLOTHING: Black Japanese Gakuran Uniform.
-      4. INTEGRATION: Seamlessly attach the reference face to the new body pose.
-      5. FRAMING: Half-body or full-body portrait, eye-level camera, front view.
-      STYLE: Photorealistic. BACKGROUND: Pure Solid White (Hex #FFFFFF).
-      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
-    `;
-  } else {
-    throw new Error('必须上传照片或提供参考图');
-  }
-
-  parts.push({ text: prompt });
+  parts.push({ inlineData: { mimeType, data: sourceBase64 } });
+  parts.push({ text: buildSpritePrompt(PROTAGONIST_BASE_PROMPT, PROTAGONIST_EXPRESSION_PROMPTS, emotion) });
   return getImageUrlFromParts(parts, '1:1');
 };
 
@@ -1380,38 +1489,35 @@ export const generateHeroine = async (
   mimeType = 'image/jpeg'
 ): Promise<string> => {
   const parts: any[] = [];
-  let prompt = '';
+  const sourceBase64 = userPhotoBase64 || referenceImageBase64;
+  if (!sourceBase64) throw new Error('必须上传照片或提供参考图');
 
-  if (userPhotoBase64) {
-    parts.push({ inlineData: { mimeType, data: userPhotoBase64 } });
-    prompt = `
-      CRITICAL INSTRUCTION:
-      1. FACE/HEAD: Must be 100% PIXEL-PERFECT MATCH to the provided reference image.
-      2. BODY/POSE: Generate a NEW body pose matching: "${emotion}". Make the expression CLEARER and the gesture SLIGHTLY more obvious than before (still natural; NO exaggerated action).
-      3. CLOTHING: Japanese Sailor School Uniform (Seifuku).
-      4. INTEGRATION: Seamlessly attach the reference face to the new body pose.
-      5. FRAMING: Half-body or full-body portrait, eye-level camera, front view.
-      6. VIBE: "少女化" / a sweet, youthful schoolgirl vibe (still the SAME face & hairstyle).
-      STYLE: Photorealistic. BACKGROUND: Pure Solid White (Hex #FFFFFF).
-      RESTRICTIONS: Do NOT generate anime, cartoon, or pixel art style.
-      EXPRESSION/POSE HINTS (pick ONE that fits "${emotion}"):
-      - shy: blushing, avoiding eye contact slightly, fingers fidgeting, small nervous smile
-      - pampering/撒娇: puffed cheeks, tiny pout, hands lightly pulling sleeve
-      - sad: watery eyes, slightly downturned mouth, shoulders a bit slumped
-    `;
-  } else {
-    throw new Error('必须上传照片或提供参考图');
-  }
-
-  parts.push({ text: prompt });
+  parts.push({ inlineData: { mimeType, data: sourceBase64 } });
+  parts.push({ text: buildSpritePrompt(HEROINE_BASE_PROMPT, HEROINE_EXPRESSION_PROMPTS, emotion) });
   return getImageUrlFromParts(parts, '1:1');
 };
+
+const BACKGROUND_STYLE_PROMPT = `
+You are a background art director for a Japanese school romance visual novel.
+Create a single establishing background that matches the scene description.
+Style reference: clean anime background art with cinematic light, soft atmosphere.
+Focus on environment detail, depth, and mood. No characters.
+`;
+
+const BACKGROUND_CONSTRAINT_PROMPT = `
+HARD CONSTRAINTS:
+- Output must be a static background scene only.
+- No characters, no people, no animals.
+- No text, no logos, no watermark, no UI.
+- No photorealism, no western style.
+- Eye-level view, coherent perspective, clean lines.
+`;
 
 export const generateBackgroundImage = async (prompt: string) =>
   getImageUrlFromParts(
     [
       {
-        text: `Japanese anime background art only, youth campus romance vibe, Makoto Shinkai influence, eye-level view, clean lines, soft sunlight, ${prompt}, detailed environment, no characters, no text, no watermark, no photorealism, no western style.`,
+        text: `${BACKGROUND_STYLE_PROMPT.trim()}\n\nSCENE DESCRIPTION:\n${prompt}\n\n${BACKGROUND_CONSTRAINT_PROMPT.trim()}`,
       },
     ],
     '16:9'

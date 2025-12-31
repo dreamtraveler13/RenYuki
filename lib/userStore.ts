@@ -301,6 +301,11 @@ export const getUserCoins = async (userId: string): Promise<number> => {
   return Number(rows[0].coins) || 0;
 };
 
+export const deleteUserById = async (userId: string): Promise<void> => {
+  const db = await getDb();
+  await db.query('DELETE FROM users WHERE id = $1', [userId]);
+};
+
 export const isUserBanned = async (userId: string): Promise<boolean> => {
   const db = await getDb();
   const { rows } = await db.query('SELECT banned_at FROM users WHERE id = $1', [userId]);

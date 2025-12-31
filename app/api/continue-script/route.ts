@@ -14,6 +14,14 @@ export async function POST(req: NextRequest) {
   const userChoiceText = (payload.userChoiceText as string) || '';
   const affinity = typeof payload.affinity === 'number' ? payload.affinity : undefined;
   const allowedBackgroundPrompts = Array.isArray(payload.allowedBackgroundPrompts) ? payload.allowedBackgroundPrompts : [];
+  const allowedHeroineEmotions = Array.isArray(payload.allowedHeroineEmotions) ? payload.allowedHeroineEmotions : undefined;
+  const allowedProtagonistEmotions = Array.isArray(payload.allowedProtagonistEmotions) ? payload.allowedProtagonistEmotions : undefined;
+  const hasProtagonistSprite =
+    payload.hasProtagonistSprite === true || payload.hasProtagonistSprite === 1 || payload.hasProtagonistSprite === '1'
+      ? true
+      : payload.hasProtagonistSprite === false || payload.hasProtagonistSprite === 0 || payload.hasProtagonistSprite === '0'
+        ? false
+        : undefined;
   const recentDialogue = Array.isArray(payload.recentDialogue) ? payload.recentDialogue : [];
 
   if (!userChoiceText.trim()) {
@@ -37,6 +45,9 @@ export async function POST(req: NextRequest) {
       userChoiceText,
       affinity,
       allowedBackgroundPrompts,
+      allowedHeroineEmotions,
+      allowedProtagonistEmotions,
+      hasProtagonistSprite,
       recentDialogue,
       signal: req.signal,
     })

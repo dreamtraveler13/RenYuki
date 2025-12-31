@@ -17,11 +17,14 @@ import GameCreationWizard from './components/GameCreationWizard';
 import VisualNovelPlayer from './components/VisualNovelPlayer';
 import LoginScreen from './components/LoginScreen';
 import Button from './components/Button';
-import { deleteSave, getSaveList, saveGame } from './services/storageService';
+import CopyLinkModal from './components/CopyLinkModal';
+import { deleteSaveServer } from './services/saveService';
 import { authLogout, authMe } from './services/accountService';
 import { publishPlazaGame } from './services/plazaService';
 import { getGameGenerationJob } from './services/aiService';
 import { stripAssetBase64Map } from './services/imageCutout';
+import { listGenerationJobs, retryGenerationJob, type GenerationJobSummary } from './services/generationJobService';
+import { deleteSave, getSaveList, saveGame } from './services/storageService';
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -38,6 +41,7 @@ const App: React.FC = () => {
   const [showPlaza, setShowPlaza] = useState(false);
   const [publishingSaveId, setPublishingSaveId] = useState<number | null>(null);
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
+  const [publishLink, setPublishLink] = useState<string | null>(null);
   const publishTimerRef = useRef<number | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [showIosPrompt, setShowIosPrompt] = useState(false);
@@ -53,6 +57,9 @@ const App: React.FC = () => {
   
   const [showLoadMenu, setShowLoadMenu] = useState(false);
   const [saveList, setSaveList] = useState<SaveFile[]>([]);
+  const [generationJobs, setGenerationJobs] = useState<GenerationJobSummary[]>([]);
+  const [jobActionId, setJobActionId] = useState<string | null>(null);
+  const [jobActionMessage, setJobActionMessage] = useState<string | null>(null);
   const [initialNodeId, setInitialNodeId] = useState<string | undefined>(undefined);
   const [initialAffinity, setInitialAffinity] = useState<number | undefined>(undefined);
 
@@ -61,8 +68,10 @@ const App: React.FC = () => {
   const [pendingGenerationStatus, setPendingGenerationStatus] = useState<GameGenerationJobStatus | null>(null);
   const [pendingGenerationError, setPendingGenerationError] = useState<string | null>(null);
   const [clientPostProcessing, setClientPostProcessing] = useState(false);
+  const [postProcessProgress, setPostProcessProgress] = useState<{ done: number; total: number } | null>(null);
   const pollInFlightRef = useRef(false);
   const coins = accountUser?.coins ?? 0;
+  const failedJobs = generationJobs.filter((job) => job.status === 'failed' || job.status === 'expired');
 
   const iosPromptOverlay = showIosPrompt ? (
     <div className="fixed inset-0 z-[30000] bg-black/80 text-white flex items-center justify-center p-6 overlay-fade-in">
@@ -145,19 +154,20 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!authChecked || !isLoggedIn) return;
     try {
-      const jobId = window.localStorage.getItem(PENDING_JOB_KEY);
-      if (jobId && typeof jobId === 'string' && jobId.trim().length > 0) {
-        setPendingGenerationJobId(jobId);
-        setPendingGenerationError(null);
-        setClientPostProcessing(false);
-        setShowLoadMenu(true);
-        void (async () => {
-          try {
-            const saves = await getSaveList();
-            setSaveList(saves);
-          } catch {}
-        })();
-      }
+        const jobId = window.localStorage.getItem(PENDING_JOB_KEY);
+        if (jobId && typeof jobId === 'string' && jobId.trim().length > 0) {
+          setPendingGenerationJobId(jobId);
+          setPendingGenerationError(null);
+          setClientPostProcessing(false);
+          setShowLoadMenu(true);
+          void (async () => {
+            try {
+              const [saves, jobs] = await Promise.all([getSaveList(), listGenerationJobs()]);
+              setSaveList(saves);
+              setGenerationJobs(jobs);
+            } catch {}
+          })();
+        }
     } catch {}
   }, [authChecked, isLoggedIn]);
 
@@ -251,6 +261,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const loadGallery = async () => {
+      if (!isLoggedIn) {
+        setGalleryHeroines([]);
+        return;
+      }
       try {
         const saves = await getSaveList();
         // Modification: Only show the SINGLE most recent heroine
@@ -267,7 +281,7 @@ const App: React.FC = () => {
       } catch (e) { console.error(e); }
     };
     loadGallery();
-  }, [gameState]);
+  }, [gameState, isLoggedIn]);
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
@@ -427,6 +441,7 @@ const App: React.FC = () => {
     setPendingGenerationStatus(null);
     setPendingGenerationError(null);
     setClientPostProcessing(false);
+    setGenerationJobs([]);
     resetGame();
   };
 
@@ -449,8 +464,8 @@ const App: React.FC = () => {
       const game = await publishPlazaGame(save);
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       const url = origin ? `${origin}/g/${game.id}` : `/g/${game.id}`;
-      const ok = await copyText(url);
-      setPublishMessage(ok ? '已发布，分享链接已复制' : '已发布，可复制分享链接');
+      setPublishMessage('已发布');
+      setPublishLink(url);
       setShowPlaza(true);
       setShowLoadMenu(false);
     } catch (err: any) {
@@ -460,11 +475,16 @@ const App: React.FC = () => {
     }
   };
 
+  const refreshMemory = async () => {
+    const [saves, jobs] = await Promise.all([getSaveList(), listGenerationJobs()]);
+    setSaveList(saves);
+    setGenerationJobs(jobs);
+  };
+
   const openLoadMenu = async () => {
     setShowLoadMenu(true);
     try {
-      const saves = await getSaveList();
-      setSaveList(saves);
+      await refreshMemory();
     } catch (e) { console.error(e); }
   };
 
@@ -473,6 +493,7 @@ const App: React.FC = () => {
     setPendingGenerationStatus(null);
     setPendingGenerationError(null);
     setClientPostProcessing(false);
+    setPostProcessProgress(null);
     try {
       window.localStorage.setItem(PENDING_JOB_KEY, jobId);
     } catch {}
@@ -482,18 +503,37 @@ const App: React.FC = () => {
     await openLoadMenu();
   };
 
-  const finalizeAndStartGame = async (payload: GameGenerationResult) => {
+  const finalizeAndStartGame = async (payload: GameGenerationResult, saveId?: number) => {
     setClientPostProcessing(true);
+    const countUniqueImages = (obj: Record<string, any>) =>
+      new Set(
+        Object.values(obj || {}).filter((v) => typeof v === 'string' && v.trim().length > 0) as string[]
+      ).size;
+    const totalImages = countUniqueImages(payload.assets.protagonist || {}) + countUniqueImages(payload.assets.heroine || {});
+    if (totalImages > 0) {
+      setPostProcessProgress({ done: 0, total: totalImages });
+    } else {
+      setPostProcessProgress(null);
+    }
     setPendingGenerationStatus((prev) =>
       prev
         ? { ...prev, progress: Math.max(prev.progress, 95), message: '正在处理立绘透明背景（本地）' }
         : prev
     );
 
-    const [protagonist, heroine] = await Promise.all([
-      stripAssetBase64Map(payload.assets.protagonist),
-      stripAssetBase64Map(payload.assets.heroine),
-    ]);
+    let processed = 0;
+    const bumpProgress = () => {
+      if (totalImages <= 0) return;
+      processed += 1;
+      setPostProcessProgress({ done: processed, total: totalImages });
+      const pct = 95 + Math.round((processed / totalImages) * 5);
+      setPendingGenerationStatus((prev) =>
+        prev ? { ...prev, progress: Math.max(prev.progress, pct), message: `正在处理立绘透明背景（${processed}/${totalImages}）` } : prev
+      );
+    };
+
+    const protagonist = await stripAssetBase64Map(payload.assets.protagonist, bumpProgress);
+    const heroine = await stripAssetBase64Map(payload.assets.heroine, bumpProgress);
 
     const finalAssets: GeneratedAssets = {
       ...payload.assets,
@@ -504,12 +544,21 @@ const App: React.FC = () => {
     };
 
     try {
-      await saveGame(payload.script, finalAssets, payload.userProfile, payload.initialNodeId, payload.initialAffinity);
-      const saves = await getSaveList();
-      setSaveList(saves);
-    } catch {}
+      const cover = finalAssets.heroine?.normal || undefined;
+      await saveGame(payload.script, finalAssets, payload.userProfile, payload.initialNodeId, payload.initialAffinity, cover);
+      await refreshMemory();
+    } catch {
+      // keep server save if local persistence fails
+    }
+
+    if (saveId) {
+      try {
+        await deleteSaveServer(saveId);
+      } catch {}
+    }
 
     setShowLoadMenu(false);
+    setPostProcessProgress(null);
     proceedToGame(payload.script, finalAssets, payload.userProfile, payload.initialNodeId, payload.initialAffinity);
   };
 
@@ -534,6 +583,10 @@ const App: React.FC = () => {
           } catch {}
           setPendingGenerationJobId(null);
           setClientPostProcessing(false);
+          setPostProcessProgress(null);
+          try {
+            await refreshMemory();
+          } catch {}
           return;
         }
 
@@ -550,7 +603,11 @@ const App: React.FC = () => {
             window.localStorage.removeItem(PENDING_JOB_KEY);
           } catch {}
           setPendingGenerationJobId(null);
-          await finalizeAndStartGame(result);
+          setPostProcessProgress(null);
+          await finalizeAndStartGame(result, full.resultSaveId);
+          try {
+            await refreshMemory();
+          } catch {}
         }
       } catch (err: any) {
         if (cancelled) return;
@@ -562,6 +619,10 @@ const App: React.FC = () => {
           } catch {}
           setPendingGenerationJobId(null);
           setClientPostProcessing(false);
+          setPostProcessProgress(null);
+          try {
+            await refreshMemory();
+          } catch {}
         }
       } finally {
         pollInFlightRef.current = false;
@@ -589,27 +650,25 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
-  const copyText = async (text: string) => {
+  const handleRetryJob = async (id: string) => {
+    if (jobActionId) return;
+    setJobActionId(id);
+    setJobActionMessage(null);
     try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        return true;
-      } catch {
-        return false;
+      const { jobId } = await retryGenerationJob(id);
+      setJobActionMessage('已开始重试');
+      await handleGenerationStarted(jobId);
+    } catch (err: any) {
+      const msg = err?.message || '重试失败';
+      setJobActionMessage(msg);
+      if (msg.includes('INSUFFICIENT_COINS') || msg.includes('嘎拉币不足')) {
+        setShowBuyCoins(true);
       }
+    } finally {
+      setJobActionId(null);
+      window.setTimeout(() => setJobActionMessage(null), 2400);
     }
   };
-
 
   if (!authChecked) {
     return (
@@ -659,6 +718,13 @@ const App: React.FC = () => {
           proceedToGame(save.script, save.assets, save.userProfile, save.currentNodeId, save.affinity);
         }}
         isAdmin={accountUser?.username === 'admire'}
+        hasAccountUser={!!accountUser}
+      />
+      <CopyLinkModal
+        open={!!publishLink}
+        url={publishLink || ''}
+        title="已发布：复制分享链接"
+        onClose={() => setPublishLink(null)}
       />
 
       {accountUser && gameState === GameState.HOME && !showLoadMenu && !showPlaza && !showBuyCoins && (
@@ -841,6 +907,65 @@ const App: React.FC = () => {
                                <div className="mt-3 text-xs font-mono-tech text-red-600">生成失败：{pendingGenerationError}</div>
                              )}
                            </div>
+                         )}
+                         {clientPostProcessing && postProcessProgress && (
+                           <div className="bg-white border border-black/10 rounded-2xl shadow-sm p-4 lg:p-6">
+                             <div className="flex items-start justify-between gap-4">
+                               <div className="min-w-0">
+                                 <div className="text-xs font-mono-tech text-gray-500">下载并处理资源</div>
+                                 <div className="text-sm lg:text-base font-semibold text-gray-900 mt-1">
+                                   正在处理立绘透明背景（{postProcessProgress.done}/{postProcessProgress.total}）
+                                 </div>
+                               </div>
+                               <div className="text-xs font-mono-tech text-gray-600">
+                                 {Math.round((postProcessProgress.done / Math.max(1, postProcessProgress.total)) * 100)}%
+                               </div>
+                             </div>
+                             <div className="mt-3 h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                               <div
+                                 className="h-full bg-black transition-all"
+                                 style={{
+                                   width: `${Math.round((postProcessProgress.done / Math.max(1, postProcessProgress.total)) * 100)}%`,
+                                 }}
+                               />
+                             </div>
+                           </div>
+                         )}
+                         {failedJobs.length > 0 && (
+                           <div className="space-y-3">
+                             <div className="text-xs font-mono-tech text-gray-500">失败/超时任务</div>
+                             {failedJobs.map((job) => (
+                               <div key={job.id} className="bg-white border border-black/10 rounded-2xl shadow-sm p-4 lg:p-5">
+                                 <div className="flex items-start justify-between gap-4">
+                                   <div className="min-w-0">
+                                     <div className="text-sm font-semibold text-gray-900">
+                                       {job.status === 'expired' ? '生成超时' : '生成失败'}
+                                     </div>
+                                     <div className="text-xs text-gray-500 mt-1">{job.message || '生成失败'}</div>
+                                     {job.error && (
+                                       <div className="text-xs text-red-600 mt-1">原因：{job.error}</div>
+                                     )}
+                                     <div className="text-[11px] font-mono-tech text-emerald-600 mt-2">已退还所有嘎拉币</div>
+                                   </div>
+                                   <div className="flex flex-col items-end gap-2">
+                                     <button
+                                       onClick={() => handleRetryJob(job.id)}
+                                       disabled={jobActionId === job.id}
+                                       className="bg-black text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-gray-900 transition-colors disabled:opacity-60"
+                                     >
+                                       {jobActionId === job.id ? '处理中…' : '重试'}
+                                     </button>
+                                     <div className="text-[10px] font-mono-tech text-gray-400">
+                                       {new Date(job.createdAt).toLocaleString('zh-CN')}
+                                     </div>
+                                   </div>
+                                 </div>
+                               </div>
+                             ))}
+                           </div>
+                         )}
+                         {jobActionMessage && (
+                           <div className="text-xs font-mono-tech text-gray-500">{jobActionMessage}</div>
                          )}
                          {saveList.length === 0 ? (
                              <div className="col-span-full text-center py-20 font-mono-tech text-gray-400">记忆库为空</div>

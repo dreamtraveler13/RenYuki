@@ -1,7 +1,5 @@
 'use client';
 
-import type { PlazaGame, PlazaGameSummary, SaveFile } from '../types';
-
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
 const withBase = (path: string) => `${API_BASE}${path}`;
@@ -9,7 +7,6 @@ const withBase = (path: string) => `${API_BASE}${path}`;
 const requestJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const resp = await fetch(withBase(path), {
     credentials: 'include',
-    cache: 'no-store',
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -44,34 +41,26 @@ const requestJson = async <T,>(path: string, init?: RequestInit): Promise<T> => 
   return data as T;
 };
 
-export const listPlazaGames = async (opts?: { mine?: boolean }): Promise<PlazaGameSummary[]> => {
-  const params = opts?.mine ? '?mine=1' : '';
-  const data = await requestJson<{ games: PlazaGameSummary[] }>(`/api/plaza/list${params}`, { method: 'GET' });
-  return data.games || [];
+export type GenerationJobSummary = {
+  id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'expired';
+  progress: number;
+  message: string;
+  error?: string;
+  refundedAt?: string;
+  coinCost: number;
+  resultSaveId?: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
-export const getPlazaGame = async (id: string): Promise<PlazaGame> => {
-  const data = await requestJson<{ game: PlazaGame }>(`/api/plaza/game?id=${encodeURIComponent(id)}`, { method: 'GET' });
-  return data.game;
+export const listGenerationJobs = async (): Promise<GenerationJobSummary[]> => {
+  const data = await requestJson<{ jobs: GenerationJobSummary[] }>('/api/generation-jobs/list', { method: 'GET' });
+  return data.jobs || [];
 };
 
-export const publishPlazaGame = async (save: SaveFile): Promise<PlazaGameSummary> => {
-  const sanitized: SaveFile = {
-    ...save,
-    assets: {
-      ...save.assets,
-      music: {},
-    },
-  };
-  const data = await requestJson<{ game: PlazaGameSummary }>('/api/plaza/publish', {
-    method: 'POST',
-    body: JSON.stringify({ save: sanitized }),
-  });
-  return data.game;
-};
-
-export const deletePlazaGame = async (id: string): Promise<{ ok: boolean }> => {
-  return await requestJson<{ ok: boolean }>('/api/plaza/delete', {
+export const retryGenerationJob = async (id: string): Promise<{ jobId: string }> => {
+  return await requestJson<{ jobId: string }>('/api/generation-jobs/retry', {
     method: 'POST',
     body: JSON.stringify({ id }),
   });
