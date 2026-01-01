@@ -1417,23 +1417,36 @@ const getImageUrlFromParts = async (parts: any[], aspectRatio = '1:1') => {
 };
 
 const PROTAGONIST_BASE_PROMPT = `
-CRITICAL INSTRUCTIONS:
-1. Identity lock: Face, hairstyle, and overall photographic style MUST match the reference image exactly.
-2. Do NOT stylize or beautify. Do NOT change face shape, hairstyle, age, skin tone, or lighting style.
-3. Clothing: black Japanese male DK school uniform (Gakuran). Keep clothing consistent with the reference; do NOT replace outfits or uniforms.
-4. Composition: upper-body portrait (head to waist), centered, eye-level.
-5. Pose: subtle and natural; posture close to the reference; no exaggerated gestures.
-6. Background: pure solid white (#FFFFFF). No text, no watermark, no extra people.
+Realistic character matching the reference image.
+Same face, hairstyle, age, sex.Do not change any facial features of the character.
+
+Wearing a black Japanese male DK school uniform (Gakuran).
+
+Upper-body portrait, head to waist.
+Centered composition, eye-level view.
+
+Natural relaxed posture.
+Simple pose suitable for dialogue scene.
+
+Pure white background (#FFFFFF).
 `;
 
 const HEROINE_BASE_PROMPT = `
-CRITICAL INSTRUCTIONS:
-1. Identity lock: Face, hairstyle, and overall photographic style MUST match the reference image exactly.
-2. Do NOT stylize or beautify. Do NOT change face shape, hairstyle, age, skin tone, or lighting style.
-3. Clothing: black Japanese female JK school uniform (Seifuku). Keep clothing consistent with the reference; do NOT replace outfits or uniforms.
-4. Composition:upper-body portrait (head to waist), centered, eye-level.
-5. Feminine direction: posture and expression should feel gentle and feminine, but still natural and not exaggerated.
-6. Background: pure solid white (#FFFFFF). No text, no watermark, no extra people.
+Realistic character matching the reference image.
+Same face, hairstyle, age, sex.Do not change any facial features of the character.
+
+Wearing a black Japanese female JK school uniform (Seifuku).
+
+Upper-body portrait, head to waist.
+Centered composition, eye-level view.
+
+Natural relaxed posture.
+Simple pose suitable for dialogue scene.
+
+Gentle feminine posture and expression.
+Natural and restrained, not exaggerated.
+
+Pure white background (#FFFFFF).
 `;
 
 const PROTAGONIST_EXPRESSION_PROMPTS: Record<string, string> = {
