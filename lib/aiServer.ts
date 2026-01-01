@@ -1417,19 +1417,13 @@ const getImageUrlFromParts = async (parts: any[], aspectRatio = '1:1') => {
 };
 
 const PROTAGONIST_BASE_PROMPT = `
-Realistic male character matching the reference image.
-Same face, hairstyle, age, skin tone, and lighting as the reference.
-
-Wearing a black Japanese male DK school uniform (Gakuran).
-No outfit changes.
-
-Upper-body portrait, head to waist.
-Centered composition, eye-level view.
-
-Natural relaxed posture.
-Simple pose suitable for a galgame dialogue scene.
-
-Pure white background (#FFFFFF).
+CRITICAL INSTRUCTIONS:
+1. Identity lock: Face, hairstyle, and overall photographic style MUST match the reference image exactly.
+2. Do NOT stylize or beautify. Do NOT change face shape, hairstyle, age, skin tone, or lighting style.
+3. Clothing: black Japanese male DK school uniform (Gakuran). Keep clothing consistent with the reference; do NOT replace outfits or uniforms.
+4. Composition: upper-body portrait (head to waist), centered, eye-level.
+5. Pose: subtle and natural; posture close to the reference; no exaggerated gestures.
+6. Background: pure solid white (#FFFFFF). No text, no watermark, no extra people.
 `;
 
 const HEROINE_BASE_PROMPT = `
@@ -1443,20 +1437,20 @@ CRITICAL INSTRUCTIONS:
 `;
 
 const PROTAGONIST_EXPRESSION_PROMPTS: Record<string, string> = {
-  normal: 'Calm neutral expression, slight polite smile, relaxed eyes.',
-  happy: 'Warm friendly smile, cheerful but restrained, relaxed eyes.',
-  shy: 'Subtle shy smile, slight blush, eyes gently lowered.',
-  surprised: 'Mild surprise, eyes slightly widened, lips gently parted.',
-  angry: 'Mild annoyance, slightly furrowed brows, restrained expression.',
+  normal: 'EXPRESSION: calm neutral with a slight polite smile; relaxed eyes.',
+  happy: 'EXPRESSION: warm friendly smile; eyes slightly curved; cheerful but restrained.',
+  shy: 'EXPRESSION: subtle embarrassed smile; slight blush; eyes soften or glance downward a little.',
+  surprised: 'EXPRESSION: mild surprise; eyes a bit wider; lips slightly parted.',
+  angry: 'EXPRESSION: mild annoyance; brows slightly furrowed; lips pressed, not aggressive.',
 };
 
 const HEROINE_EXPRESSION_PROMPTS: Record<string, string> = {
-  normal: 'Gentle neutral smile, soft eyes, calm feminine mood.',
-  happy: 'Warm bright smile, cheerful yet soft, gentle eyes.',
-  shy: 'Slight blush, small shy smile, eyes softly averted.',
-  surprised: 'Mild surprise, eyes slightly widened, soft feminine expression.',
-  angry: 'Light pout, slightly furrowed brows, restrained and cute.',
-  sad: 'Soft sadness, slightly watery eyes, gentle downturned mouth.',
+  normal: 'EXPRESSION: gentle neutral smile; soft eyes; calm and feminine.',
+  happy: 'EXPRESSION: warm bright smile; eyes slightly curved; cheerful but soft.',
+  shy: 'EXPRESSION: slight blush; small shy smile; eyes slightly averted; gentle, modest vibe.',
+  surprised: 'EXPRESSION: mild surprise; eyes a bit wider; lips slightly parted; still feminine.',
+  angry: 'EXPRESSION: light pout; brows slightly furrowed; restrained, not aggressive.',
+  sad: 'EXPRESSION: soft sadness; eyes slightly watery; mouth gently downturned, not dramatic.',
 };
 
 const buildSpritePrompt = (basePrompt: string, map: Record<string, string>, emotionRaw: string) => {

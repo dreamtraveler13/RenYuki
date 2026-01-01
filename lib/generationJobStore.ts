@@ -30,10 +30,10 @@ const rowToRecord = (row: any): GenerationJobRecord => ({
   message: String(row.message || ''),
   error: row.error ? String(row.error) : undefined,
   coinCost: Number(row.coin_cost) || 0,
-  refundedAt: row.refunded_at ? String(row.refunded_at) : undefined,
+  refundedAt: row.refunded_at ? new Date(row.refunded_at).toISOString() : undefined,
   resultSaveId: row.result_save_id ? Number(row.result_save_id) : undefined,
-  createdAt: String(row.created_at),
-  updatedAt: String(row.updated_at),
+  createdAt: new Date(row.created_at).toISOString(),
+  updatedAt: new Date(row.updated_at).toISOString(),
 });
 
 export const createGenerationJobRecord = async (params: {
@@ -95,7 +95,7 @@ export const updateGenerationJobRecord = async (
       typeof patch.progress === 'number' ? patch.progress : null,
       patch.message || null,
       patch.error || null,
-      patch.refundedAt || null,
+      patch.refundedAt ? new Date(patch.refundedAt).toISOString() : null,
       typeof patch.resultSaveId === 'number' ? patch.resultSaveId : null,
       now,
     ]
