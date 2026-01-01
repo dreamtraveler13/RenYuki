@@ -5,21 +5,3 @@ node_modules
 .next
 out
 
-# TS build info
-tsconfig.tsbuildinfo
-
-# Env & secrets
-.env.local
-.env
-
-# Logs
-npm-debug.log*
-yarn-error.log*
-
-# Misc
-.DS_Store
-job_results
-
-# Runtime data (auth/orders)
-data/*
-!data/.gitkeep
