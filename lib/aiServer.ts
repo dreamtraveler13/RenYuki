@@ -4,15 +4,24 @@ import { GameScript, SpeakerType, StoryNode } from '@/types';
 
 const FALLBACK_BACKGROUND = 'General anime scene';
 
-const LINGYAAI_BASE_URL = process.env.LINGYAAI_BASE_URL || 'https://api.lingyaai.cn';
-const LINGYAAI_CHAT_MODEL = process.env.LINGYAAI_CHAT_MODEL || 'gemini-3-flash-preview';
-const LINGYAAI_IMAGE_MODEL = process.env.LINGYAAI_IMAGE_MODEL || 'doubao-seedream-4-5-251128';
-const LINGYAAI_IMAGE_SIZE = process.env.LINGYAAI_IMAGE_SIZE || '2K';
-const LINGYAAI_DEVELOPER_MESSAGE = process.env.LINGYAAI_DEVELOPER_MESSAGE || '你是一个有帮助的助手。';
-const LINGYAAI_FETCH_TIMEOUT_MS = Number(process.env.LINGYAAI_FETCH_TIMEOUT_MS || 240_000);
-const LINGYAAI_IMAGE_TIMEOUT_MS = Number(process.env.LINGYAAI_IMAGE_TIMEOUT_MS || 240_000);
-const LINGYAAI_IMAGE_DOWNLOAD_TIMEOUT_MS = Number(process.env.LINGYAAI_IMAGE_DOWNLOAD_TIMEOUT_MS || 90_000);
-const LINGYAAI_IMAGE_CONCURRENCY = Math.max(1, Number(process.env.LINGYAAI_IMAGE_CONCURRENCY || 16));
+const JIEKOU_BASE_URL = process.env.JIEKOU_BASE_URL || 'https://api.jiekou.ai';
+const JIEKOU_CHAT_MODEL = process.env.JIEKOU_CHAT_MODEL || 'gemini-3-flash-preview';
+const JIEKOU_BACKGROUND_IMAGE_MODEL = process.env.JIEKOU_BACKGROUND_IMAGE_MODEL || 'doubao-seedream-4-5-251128';
+const JIEKOU_SPRITE_IMAGE_MODEL = process.env.JIEKOU_SPRITE_IMAGE_MODEL || 'nano-banana';
+const JIEKOU_BACKGROUND_IMAGE_SIZE = process.env.JIEKOU_BACKGROUND_IMAGE_SIZE || '2K';
+const JIEKOU_SPRITE_IMAGE_SIZE = process.env.JIEKOU_SPRITE_IMAGE_SIZE || '';
+const JIEKOU_DEVELOPER_MESSAGE = process.env.JIEKOU_DEVELOPER_MESSAGE || '你是一个有帮助的助手。';
+const JIEKOU_FETCH_TIMEOUT_MS = Number(process.env.JIEKOU_FETCH_TIMEOUT_MS || 240_000);
+const JIEKOU_IMAGE_TIMEOUT_MS = Number(process.env.JIEKOU_IMAGE_TIMEOUT_MS || 240_000);
+const JIEKOU_IMAGE_DOWNLOAD_TIMEOUT_MS = Number(process.env.JIEKOU_IMAGE_DOWNLOAD_TIMEOUT_MS || 90_000);
+const JIEKOU_BACKGROUND_IMAGE_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.JIEKOU_BACKGROUND_IMAGE_CONCURRENCY || 16)
+);
+const JIEKOU_SPRITE_IMAGE_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.JIEKOU_SPRITE_IMAGE_CONCURRENCY || 8)
+);
 const AI_DEBUG =
   process.env.AI_DEBUG === '1' || process.env.AI_DEBUG === 'true' || process.env.AI_DEBUG === 'yes';
 
@@ -85,7 +94,8 @@ const createSemaphore = (max: number) => {
   return { run };
 };
 
-const imageSemaphore = createSemaphore(LINGYAAI_IMAGE_CONCURRENCY);
+const backgroundImageSemaphore = createSemaphore(JIEKOU_BACKGROUND_IMAGE_CONCURRENCY);
+const spriteImageSemaphore = createSemaphore(JIEKOU_SPRITE_IMAGE_CONCURRENCY);
 
 const isRetriableNetworkError = (err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
@@ -155,13 +165,13 @@ const sanitizeEmotionList = (raw: unknown, fallback: Array<StoryNode['emotion']>
   return uniq;
 };
 
-const ensureLingyaKey = () => {
-  const key = process.env.LINGYAAI_API_KEY || process.env.API_KEY;
-  if (!key) throw new Error('LINGYAAI_API_KEY is missing. Set it in your server environment.');
+const ensureJiekouKey = () => {
+  const key = process.env.JIEKOU_API_KEY || process.env.API_KEY;
+  if (!key) throw new Error('JIEKOU_API_KEY is missing. Set it in your server environment.');
   return key;
 };
 
-const getLingyaErrorMessage = (data: any) => {
+const getJiekouErrorMessage = (data: any) => {
   if (!data) return null;
   if (typeof data === 'string') return data;
   const error = (data as any).error;
@@ -175,10 +185,10 @@ const getLingyaErrorMessage = (data: any) => {
   }
 };
 
-const lingyaPostJson = async <T>(path: string, body: unknown, opts?: { timeoutMs?: number }): Promise<T> => {
-  const apiKey = ensureLingyaKey();
+const jiekouPostJson = async <T>(path: string, body: unknown, opts?: { timeoutMs?: number }): Promise<T> => {
+  const apiKey = ensureJiekouKey();
   const ac = new AbortController();
-  const timeoutMs = Number.isFinite(opts?.timeoutMs) ? (opts!.timeoutMs as number) : LINGYAAI_FETCH_TIMEOUT_MS;
+  const timeoutMs = Number.isFinite(opts?.timeoutMs) ? (opts!.timeoutMs as number) : JIEKOU_FETCH_TIMEOUT_MS;
   const timer = setTimeout(() => ac.abort(), timeoutMs).unref?.();
   const debugStore = getAiDebugStore();
   const debugEntry: AiDebugEntry | null = debugStore
@@ -188,7 +198,7 @@ const lingyaPostJson = async <T>(path: string, body: unknown, opts?: { timeoutMs
 
   let resp: Response;
   try {
-    resp = await fetch(`${LINGYAAI_BASE_URL}${path}`, {
+    resp = await fetch(`${JIEKOU_BASE_URL}${path}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -218,7 +228,7 @@ const lingyaPostJson = async <T>(path: string, body: unknown, opts?: { timeoutMs
   if (debugEntry) debugEntry.status = resp.status;
 
   if (!resp.ok) {
-    const message = getLingyaErrorMessage(data) || (rawText.trim().length > 0 ? rawText.trim() : null) || `Request failed: ${resp.status}`;
+    const message = getJiekouErrorMessage(data) || (rawText.trim().length > 0 ? rawText.trim() : null) || `Request failed: ${resp.status}`;
     if (debugEntry) {
       debugEntry.response = data || rawText;
       debugEntry.error = message;
@@ -235,7 +245,7 @@ const lingyaPostJson = async <T>(path: string, body: unknown, opts?: { timeoutMs
 
   // Some upstreams return 200 with an { error: ... } envelope.
   if (data && typeof data === 'object' && (data as any).error) {
-    const message = getLingyaErrorMessage(data) || 'Upstream error';
+    const message = getJiekouErrorMessage(data) || 'Upstream error';
     if (debugEntry) {
       debugEntry.response = data;
       debugEntry.error = message;
@@ -247,12 +257,12 @@ const lingyaPostJson = async <T>(path: string, body: unknown, opts?: { timeoutMs
   return data as T;
 };
 
-type LingyaChatMessage = {
+type JiekouChatMessage = {
   role: 'developer' | 'user' | 'assistant' | 'model';
   content: string;
 };
 
-type LingyaChatCompletionResponse = {
+type JiekouChatCompletionResponse = {
   choices?: Array<{
     finish_reason?: string | null;
     message?: {
@@ -264,17 +274,17 @@ type LingyaChatCompletionResponse = {
   }>;
 };
 
-const getChatChoice = (response: LingyaChatCompletionResponse) => response.choices?.[0];
+const getChatChoice = (response: JiekouChatCompletionResponse) => response.choices?.[0];
 
-const getChatContent = (response: LingyaChatCompletionResponse) => {
+const getChatContent = (response: JiekouChatCompletionResponse) => {
   const choice = getChatChoice(response);
   return choice?.message?.content || choice?.text || '';
 };
 
-const isGeminiModel = (model = LINGYAAI_CHAT_MODEL) => /\bgemini\b/i.test(model);
+const isGeminiModel = (model = JIEKOU_CHAT_MODEL) => /\bgemini\b/i.test(model);
 
-const buildChatMessages = (userContent: string): LingyaChatMessage[] => {
-  const dev = typeof LINGYAAI_DEVELOPER_MESSAGE === 'string' ? LINGYAAI_DEVELOPER_MESSAGE.trim() : '';
+const buildChatMessages = (userContent: string): JiekouChatMessage[] => {
+  const dev = typeof JIEKOU_DEVELOPER_MESSAGE === 'string' ? JIEKOU_DEVELOPER_MESSAGE.trim() : '';
   if (isGeminiModel()) {
     const merged = [dev, userContent].filter((s) => typeof s === 'string' && s.trim().length > 0).join('\n\n');
     return [{ role: 'user', content: merged }];
@@ -285,7 +295,7 @@ const buildChatMessages = (userContent: string): LingyaChatMessage[] => {
   ];
 };
 
-const formatChatBlockedDetails = (response: LingyaChatCompletionResponse) => {
+const formatChatBlockedDetails = (response: JiekouChatCompletionResponse) => {
   const choice = getChatChoice(response);
   const refusal = choice?.message?.refusal;
   const finishReason = choice?.finish_reason;
@@ -301,14 +311,14 @@ const formatChatBlockedDetails = (response: LingyaChatCompletionResponse) => {
 };
 
 
-const lingyaChatCompletion = async (params: {
-  messages: LingyaChatMessage[];
+const jiekouChatCompletion = async (params: {
+  messages: JiekouChatMessage[];
   temperature?: number;
   max_tokens?: number;
   response_format?: any;
 }) =>
-  lingyaPostJson<LingyaChatCompletionResponse>('/v1/chat/completions', {
-    model: LINGYAAI_CHAT_MODEL,
+  jiekouPostJson<JiekouChatCompletionResponse>('/v1/chat/completions', {
+    model: JIEKOU_CHAT_MODEL,
     messages: params.messages,
     temperature: params.temperature,
     max_tokens: params.max_tokens,
@@ -316,15 +326,15 @@ const lingyaChatCompletion = async (params: {
     ...(params.response_format ? { response_format: params.response_format } : {}),
   });
 
-const lingyaChatCompletionStream = async (params: {
-  messages: LingyaChatMessage[];
+const jiekouChatCompletionStream = async (params: {
+  messages: JiekouChatMessage[];
   temperature?: number;
   max_tokens?: number;
   signal?: AbortSignal;
 }) => {
-  const apiKey = ensureLingyaKey();
+  const apiKey = ensureJiekouKey();
   const body = {
-    model: LINGYAAI_CHAT_MODEL,
+    model: JIEKOU_CHAT_MODEL,
     messages: params.messages,
     temperature: params.temperature,
     max_tokens: params.max_tokens,
@@ -336,7 +346,7 @@ const lingyaChatCompletionStream = async (params: {
     : null;
   if (debugEntry) debugStore!.entries.push(debugEntry);
 
-  const resp = await fetch(`${LINGYAAI_BASE_URL}/v1/chat/completions`, {
+  const resp = await fetch(`${JIEKOU_BASE_URL}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -358,7 +368,7 @@ const lingyaChatCompletionStream = async (params: {
     } catch {
       data = null;
     }
-    const message = getLingyaErrorMessage(data) || (rawText.trim().length > 0 ? rawText.trim() : null) || `Request failed: ${resp.status}`;
+    const message = getJiekouErrorMessage(data) || (rawText.trim().length > 0 ? rawText.trim() : null) || `Request failed: ${resp.status}`;
     if (debugEntry) {
       debugEntry.response = data || rawText;
       debugEntry.error = message;
@@ -376,7 +386,7 @@ const lingyaChatCompletionStream = async (params: {
   return { resp, debugEntry };
 };
 
-type LingyaChatCompletionChunk = {
+type JiekouChatCompletionChunk = {
   choices?: Array<{
     delta?: { role?: string; content?: string };
     message?: { role?: string; content?: string };
@@ -385,7 +395,7 @@ type LingyaChatCompletionChunk = {
   }>;
 };
 
-const getChunkDeltaContent = (chunk: LingyaChatCompletionChunk) =>
+const getChunkDeltaContent = (chunk: JiekouChatCompletionChunk) =>
   chunk.choices?.[0]?.delta?.content || chunk.choices?.[0]?.message?.content || chunk.choices?.[0]?.text || '';
 
 const parseStreamLineToChunkJson = (line: string): any | null => {
@@ -400,13 +410,13 @@ const parseStreamLineToChunkJson = (line: string): any | null => {
   }
 };
 
-async function* lingyaChatCompletionDeltaStream(params: {
-  messages: LingyaChatMessage[];
+async function* jiekouChatCompletionDeltaStream(params: {
+  messages: JiekouChatMessage[];
   temperature?: number;
   max_tokens?: number;
   signal?: AbortSignal;
 }): AsyncGenerator<string> {
-  const { resp, debugEntry } = await lingyaChatCompletionStream(params);
+  const { resp, debugEntry } = await jiekouChatCompletionStream(params);
   const reader = resp.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -421,7 +431,7 @@ async function* lingyaChatCompletionDeltaStream(params: {
     for (const rawLine of parts) {
       const obj = parseStreamLineToChunkJson(rawLine);
       if (!obj) continue;
-      const delta = getChunkDeltaContent(obj as LingyaChatCompletionChunk);
+      const delta = getChunkDeltaContent(obj as JiekouChatCompletionChunk);
       if (delta) {
         if (debugEntry) debugText += delta;
         yield delta;
@@ -432,7 +442,7 @@ async function* lingyaChatCompletionDeltaStream(params: {
   if (buffer.trim()) {
     const obj = parseStreamLineToChunkJson(buffer);
     if (obj) {
-      const delta = getChunkDeltaContent(obj as LingyaChatCompletionChunk);
+      const delta = getChunkDeltaContent(obj as JiekouChatCompletionChunk);
       if (delta) {
         if (debugEntry) debugText += delta;
         yield delta;
@@ -443,32 +453,51 @@ async function* lingyaChatCompletionDeltaStream(params: {
   if (debugEntry) debugEntry.response = debugText;
 }
 
-type LingyaImagesGenerationResponse = {
+type JiekouImagesGenerationResponse = {
   data?: Array<{
     url?: string;
     b64_json?: string;
   }>;
 };
 
-const lingyaImagesGeneration = async (params: { prompt: string; image?: string[]; aspectRatio?: string }) =>
+const isNanoBananaModel = (model: string) => /\bnano-banana\b/i.test(model);
+
+const jiekouImagesGeneration = async (params: {
+  model: string;
+  prompt: string;
+  image?: string[];
+  aspectRatio?: string;
+  size?: string;
+  imageSize?: string;
+  responseFormat?: string;
+}) =>
   withRetry(
     () =>
-      lingyaPostJson<LingyaImagesGenerationResponse>(
+      jiekouPostJson<JiekouImagesGenerationResponse>(
         '/v1/images/generations',
-        {
-          model: LINGYAAI_IMAGE_MODEL,
-          prompt: params.prompt,
-          image: params.image,
-          n: 1,
-          sequential_image_generation: 'disabled',
-          response_format: 'url',
-          size: LINGYAAI_IMAGE_SIZE,
-          stream: false,
-          watermark: false,
-        },
-        { timeoutMs: LINGYAAI_IMAGE_TIMEOUT_MS }
+        (() => {
+          const useNano = isNanoBananaModel(params.model);
+          const payload: Record<string, any> = {
+            model: params.model,
+            prompt: params.prompt,
+            image: params.image,
+            n: 1,
+            sequential_image_generation: 'disabled',
+            response_format: params.responseFormat || 'url',
+            stream: false,
+            watermark: false,
+          };
+          if (useNano) {
+            if (params.aspectRatio) payload.aspect_ratio = params.aspectRatio;
+            if (params.imageSize && /\bnano-banana-pro\b/i.test(params.model)) payload.image_size = params.imageSize;
+          } else if (params.size) {
+            payload.size = params.size;
+          }
+          return payload;
+        })(),
+        { timeoutMs: JIEKOU_IMAGE_TIMEOUT_MS }
       ),
-    { tries: 3, baseDelayMs: 800, maxDelayMs: 6500, label: 'lingyaImagesGeneration' }
+    { tries: 3, baseDelayMs: 800, maxDelayMs: 6500, label: 'jiekouImagesGeneration' }
   );
 
 const extractJSON = (text: string): any => {
@@ -849,7 +878,7 @@ export const inferBackgroundScenes = async (plotDescription: string): Promise<Ba
     {"scenes":[{"name":"校园","prompt":"Japanese high school campus walkway after school, warm sunset, no characters, no text"}]}
   `;
 
-  const response = await lingyaChatCompletion({
+  const response = await jiekouChatCompletion({
     messages: buildChatMessages(prompt),
     temperature: 0.2,
     max_tokens: 1024,
@@ -1015,7 +1044,7 @@ export const generateScript = async (
   };
 
   const callScriptChat = async (params: { temperature: number; response_format?: any }) =>
-    lingyaChatCompletion({
+    jiekouChatCompletion({
       messages: buildChatMessages(prompt),
       temperature: params.temperature,
       max_tokens: 8192,
@@ -1266,7 +1295,7 @@ export async function* continueStoryStream(params: {
   };
 
   try {
-    const deltaStream = lingyaChatCompletionDeltaStream({
+    const deltaStream = jiekouChatCompletionDeltaStream({
       messages: buildChatMessages(prompt),
       temperature: 0.7,
       max_tokens: 4096,
@@ -1394,7 +1423,16 @@ export async function* continueStoryStream(params: {
   yield { type: 'done' };
 }
 
-const getImageUrlFromParts = async (parts: any[], aspectRatio = '1:1') => {
+const getImageUrlFromParts = async (params: {
+  parts: any[];
+  aspectRatio?: string;
+  model: string;
+  size?: string;
+  imageSize?: string;
+  responseFormat?: string;
+  semaphore: ReturnType<typeof createSemaphore>;
+}) => {
+  const { parts, aspectRatio, model, size, imageSize, responseFormat, semaphore } = params;
   const prompt = parts.find((part: any) => typeof part?.text === 'string')?.text as string | undefined;
   if (!prompt) throw new Error('Image prompt is missing');
 
@@ -1403,11 +1441,15 @@ const getImageUrlFromParts = async (parts: any[], aspectRatio = '1:1') => {
     .filter((inline: any) => inline && typeof inline?.mimeType === 'string' && typeof inline?.data === 'string')
     .map((inline: any) => `data:${inline.mimeType};base64,${inline.data}`);
 
-  return imageSemaphore.run(async () => {
-    const response = await lingyaImagesGeneration({
+  return semaphore.run(async () => {
+    const response = await jiekouImagesGeneration({
+      model,
       prompt,
       image: image.length > 0 ? image : undefined,
       aspectRatio,
+      size,
+      imageSize,
+      responseFormat,
     });
 
     const url = response.data?.[0]?.url;
@@ -1486,7 +1528,14 @@ export const generateProtagonist = async (
 
   parts.push({ inlineData: { mimeType, data: sourceBase64 } });
   parts.push({ text: buildSpritePrompt(PROTAGONIST_BASE_PROMPT, PROTAGONIST_EXPRESSION_PROMPTS, emotion) });
-  return getImageUrlFromParts(parts, '1:1');
+  return getImageUrlFromParts({
+    parts,
+    aspectRatio: '1:1',
+    model: JIEKOU_SPRITE_IMAGE_MODEL,
+    imageSize: JIEKOU_SPRITE_IMAGE_SIZE || undefined,
+    responseFormat: 'url',
+    semaphore: spriteImageSemaphore,
+  });
 };
 
 export const generateHeroine = async (
@@ -1501,7 +1550,14 @@ export const generateHeroine = async (
 
   parts.push({ inlineData: { mimeType, data: sourceBase64 } });
   parts.push({ text: buildSpritePrompt(HEROINE_BASE_PROMPT, HEROINE_EXPRESSION_PROMPTS, emotion) });
-  return getImageUrlFromParts(parts, '1:1');
+  return getImageUrlFromParts({
+    parts,
+    aspectRatio: '1:1',
+    model: JIEKOU_SPRITE_IMAGE_MODEL,
+    imageSize: JIEKOU_SPRITE_IMAGE_SIZE || undefined,
+    responseFormat: 'url',
+    semaphore: spriteImageSemaphore,
+  });
 };
 
 const BACKGROUND_STYLE_PROMPT = `
@@ -1521,11 +1577,14 @@ HARD CONSTRAINTS:
 `;
 
 export const generateBackgroundImage = async (prompt: string) =>
-  getImageUrlFromParts(
-    [
+  getImageUrlFromParts({
+    parts: [
       {
         text: `${BACKGROUND_STYLE_PROMPT.trim()}\n\nSCENE DESCRIPTION:\n${prompt}\n\n${BACKGROUND_CONSTRAINT_PROMPT.trim()}`,
       },
     ],
-    '16:9'
-  );
+    model: JIEKOU_BACKGROUND_IMAGE_MODEL,
+    size: JIEKOU_BACKGROUND_IMAGE_SIZE,
+    responseFormat: 'url',
+    semaphore: backgroundImageSemaphore,
+  });

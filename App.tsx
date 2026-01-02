@@ -22,7 +22,7 @@ import { deleteSaveServer } from './services/saveService';
 import { authLogout, authMe } from './services/accountService';
 import { publishPlazaGame } from './services/plazaService';
 import { getGameGenerationJob } from './services/aiService';
-import { stripAssetBase64Map } from './services/imageCutout';
+import { stripAssetBase64Map, warmUpBackgroundRemoval } from './services/imageCutout';
 import { listGenerationJobs, retryGenerationJob, type GenerationJobSummary } from './services/generationJobService';
 import { deleteSave, getSaveList, saveGame } from './services/storageService';
 
@@ -70,6 +70,7 @@ const App: React.FC = () => {
   const [clientPostProcessing, setClientPostProcessing] = useState(false);
   const [postProcessProgress, setPostProcessProgress] = useState<{ done: number; total: number } | null>(null);
   const pollInFlightRef = useRef(false);
+  const modnetWarmupRef = useRef(false);
   const coins = accountUser?.coins ?? 0;
   const failedJobs = generationJobs.filter((job) => job.status === 'failed' || job.status === 'expired');
 
@@ -493,6 +494,10 @@ const App: React.FC = () => {
     setPendingGenerationError(null);
     setClientPostProcessing(false);
     setPostProcessProgress(null);
+    if (!modnetWarmupRef.current) {
+      modnetWarmupRef.current = true;
+      void warmUpBackgroundRemoval();
+    }
     try {
       window.localStorage.setItem(PENDING_JOB_KEY, jobId);
     } catch {}
@@ -519,6 +524,8 @@ const App: React.FC = () => {
         ? { ...prev, progress: Math.max(prev.progress, 95), message: '正在处理立绘透明背景（本地）' }
         : prev
     );
+
+    await warmUpBackgroundRemoval();
 
     let processed = 0;
     const bumpProgress = () => {
@@ -607,6 +614,12 @@ const App: React.FC = () => {
           try {
             await refreshMemory();
           } catch {}
+          return;
+        }
+
+        if (!modnetWarmupRef.current) {
+          modnetWarmupRef.current = true;
+          void warmUpBackgroundRemoval();
         }
       } catch (err: any) {
         if (cancelled) return;

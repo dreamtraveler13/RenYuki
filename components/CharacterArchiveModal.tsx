@@ -6,7 +6,7 @@ import Button from './Button';
 import PolicyModal from './PolicyModal';
 import { createProfile, deleteProfile, listProfiles, publishProfile } from '../services/profileService';
 import { fileToBase64, generateHeroineSprite, generateProtagonistSprite } from '../services/aiService';
-import { removeBackground } from '../services/imageCutout';
+import { stripAssetBase64Map, warmUpBackgroundRemoval } from '../services/imageCutout';
 import { policyAccept, policyStatus } from '../services/accountService';
 
 interface Props {
@@ -164,14 +164,8 @@ const CharacterArchiveModal: React.FC<Props> = ({ open, onClose, onProfilesUpdat
       }
 
       const cleanedImages = normalizeProfileImages(images);
-      const entries = Object.entries(cleanedImages).filter(([, v]) => typeof v === 'string' && v.trim().length > 0) as Array<[string, string]>;
-      const unique = Array.from(new Set(entries.map(([, v]) => v)));
-      const cleanedPairs = await Promise.all(unique.map(async (img) => [img, await removeBackground(img)] as const));
-      const map = new Map(cleanedPairs);
-      const transparent: CharacterImages = { ...cleanedImages };
-      entries.forEach(([k, v]) => {
-        (transparent as any)[k] = map.get(v) || v;
-      });
+      await warmUpBackgroundRemoval();
+      const transparent = await stripAssetBase64Map(cleanedImages);
 
       const profile = await createProfile({
         role: activeRole,

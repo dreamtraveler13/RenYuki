@@ -3,7 +3,7 @@ import { getDb } from './db';
 import { getUserById, type PublicUser } from './userStore';
 
 const getFingerprintSecret = () =>
-  process.env.AUTH_SECRET || process.env.LINGYAAI_API_KEY || process.env.API_KEY || 'dev-insecure-secret';
+  process.env.AUTH_SECRET || process.env.JIEKOU_API_KEY || process.env.API_KEY || 'dev-insecure-secret';
 
 const hashFingerprint = (fingerprint: string) =>
   crypto.createHmac('sha256', getFingerprintSecret()).update(fingerprint).digest('hex');

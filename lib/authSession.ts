@@ -27,7 +27,7 @@ const base64UrlDecode = (input: string) => {
 };
 
 const getAuthSecret = () => {
-  return process.env.AUTH_SECRET || process.env.LINGYAAI_API_KEY || process.env.API_KEY || 'dev-insecure-secret';
+  return process.env.AUTH_SECRET || process.env.JIEKOU_API_KEY || process.env.API_KEY || 'dev-insecure-secret';
 };
 
 const sign = (data: string) => {

@@ -12,7 +12,7 @@
 - `npm run build` - production build; blocks on type or lint errors.
 - `npm run start` - run the built app locally.
 - `npm run lint` - Next.js ESLint checks; run before commits/PRs.
-- Required env keys: `LINGYAAI_API_KEY` (or `API_KEY`); optional `NEXT_PUBLIC_API_BASE` for custom API hosts.
+- Required env keys: `JIEKOU_API_KEY` (or `API_KEY`); optional `NEXT_PUBLIC_API_BASE` for custom API hosts.
 
 ## Coding Style & Naming Conventions
 - TypeScript-first; keep components functional and hook-driven. Use `PascalCase` for React components and files, `camelCase` for helpers, and hyphenated route filenames under `app/api/*`.

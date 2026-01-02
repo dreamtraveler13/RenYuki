@@ -41,7 +41,7 @@ A robust, browser-based Visual Novel engine offering:
 npm install
 
 # 2. Setup Environment
-# Create .env.local with LINGYAAI_API_KEY and MINIO credentials
+# Create .env.local with JIEKOU_API_KEY and MINIO credentials
 
 # 3. Run Development Server
 npm run dev
