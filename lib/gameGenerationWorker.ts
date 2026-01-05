@@ -4,8 +4,7 @@ import { createJob, updateJob } from '@/lib/gameGenerationCache';
 import { enqueueGenerationJob } from '@/lib/generationQueue';
 import {
   generateBackgroundImage,
-  generateHeroine,
-  generateProtagonist,
+  generateSpriteSet,
   generateScript,
   inferBackgroundScenes,
   withAiDebug,
@@ -64,13 +63,11 @@ const generateProtagonistSet = async (input: StartGameGenerationInput) => {
 
   if (input.protagonistPhotoBase64) {
     const emotionSet: Array<keyof GeneratedAssets['protagonist']> = ['normal', 'happy', 'shy'];
-    const urls = await Promise.all(
-      emotionSet.map((emotion) => generateProtagonist(emotion, input.protagonistPhotoBase64, undefined, mimeType))
-    );
+    const urls = await generateSpriteSet(emotionSet, input.protagonistPhotoBase64, mimeType, false);
     const images = await Promise.all(urls.map(downloadToBase64));
     const out: any = {};
     emotionSet.forEach((key, i) => {
-      out[key] = images[i] || '';
+      out[key] = images[i] || images[0] || '';
     });
     if (!out.normal) out.normal = images[0] || '';
     if (!out.happy) out.happy = out.normal;
@@ -88,13 +85,11 @@ const generateHeroineSet = async (input: StartGameGenerationInput) => {
 
   if (input.heroinePhotoBase64) {
     const emotionSet: Array<keyof GeneratedAssets['heroine']> = ['normal', 'shy', 'happy', 'surprised'];
-    const urls = await Promise.all(
-      emotionSet.map((emotion) => generateHeroine(emotion, undefined, input.heroinePhotoBase64, mimeType))
-    );
+    const urls = await generateSpriteSet(emotionSet, input.heroinePhotoBase64, mimeType, true);
     const images = await Promise.all(urls.map(downloadToBase64));
     const out: any = {};
     emotionSet.forEach((key, i) => {
-      out[key] = images[i] || '';
+      out[key] = images[i] || images[0] || '';
     });
     if (!out.normal) out.normal = images[0] || '';
     if (!out.happy) out.happy = out.normal;

@@ -4,10 +4,9 @@ import { GameScript, SpeakerType, StoryNode } from '@/types';
 
 const FALLBACK_BACKGROUND = 'General anime scene';
 
-const JIEKOU_BASE_URL = process.env.JIEKOU_BASE_URL || 'https://api.jiekou.ai';
-const JIEKOU_CHAT_MODEL = process.env.JIEKOU_CHAT_MODEL || 'gemini-3-flash-preview';
-const JIEKOU_BACKGROUND_IMAGE_MODEL = process.env.JIEKOU_BACKGROUND_IMAGE_MODEL || 'doubao-seedream-4-5-251128';
-const JIEKOU_SPRITE_IMAGE_MODEL = process.env.JIEKOU_SPRITE_IMAGE_MODEL || 'nano-banana';
+const JIEKOU_CHAT_BASE_URL = process.env.JIEKOU_CHAT_BASE_URL || 'https://api.jiekou.ai/openai';
+const JIEKOU_IMAGE_ENDPOINT = process.env.JIEKOU_IMAGE_ENDPOINT || 'https://api.jiekou.ai/v3/seedream-4.5';
+const JIEKOU_CHAT_MODEL = process.env.JIEKOU_CHAT_MODEL || 'gemini-2.5-flash';
 const JIEKOU_BACKGROUND_IMAGE_SIZE = process.env.JIEKOU_BACKGROUND_IMAGE_SIZE || '2K';
 const JIEKOU_SPRITE_IMAGE_SIZE = process.env.JIEKOU_SPRITE_IMAGE_SIZE || '';
 const JIEKOU_DEVELOPER_MESSAGE = process.env.JIEKOU_DEVELOPER_MESSAGE || '你是一个有帮助的助手。';
@@ -185,20 +184,31 @@ const getJiekouErrorMessage = (data: any) => {
   }
 };
 
-const jiekouPostJson = async <T>(path: string, body: unknown, opts?: { timeoutMs?: number }): Promise<T> => {
+const resolveJiekouUrl = (pathOrUrl: string, baseUrl: string) => {
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  return `${baseUrl}${pathOrUrl}`;
+};
+
+const jiekouPostJson = async <T>(
+  pathOrUrl: string,
+  body: unknown,
+  opts?: { timeoutMs?: number; baseUrl?: string }
+): Promise<T> => {
   const apiKey = ensureJiekouKey();
+  const baseUrl = opts?.baseUrl || JIEKOU_CHAT_BASE_URL;
+  const url = resolveJiekouUrl(pathOrUrl, baseUrl);
   const ac = new AbortController();
   const timeoutMs = Number.isFinite(opts?.timeoutMs) ? (opts!.timeoutMs as number) : JIEKOU_FETCH_TIMEOUT_MS;
   const timer = setTimeout(() => ac.abort(), timeoutMs).unref?.();
   const debugStore = getAiDebugStore();
   const debugEntry: AiDebugEntry | null = debugStore
-    ? { id: crypto.randomUUID(), path, request: body, stream: false }
+    ? { id: crypto.randomUUID(), path: pathOrUrl, request: body, stream: false }
     : null;
   if (debugEntry) debugStore!.entries.push(debugEntry);
 
   let resp: Response;
   try {
-    resp = await fetch(`${JIEKOU_BASE_URL}${path}`, {
+    resp = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -346,7 +356,7 @@ const jiekouChatCompletionStream = async (params: {
     : null;
   if (debugEntry) debugStore!.entries.push(debugEntry);
 
-  const resp = await fetch(`${JIEKOU_BASE_URL}/v1/chat/completions`, {
+  const resp = await fetch(resolveJiekouUrl('/v1/chat/completions', JIEKOU_CHAT_BASE_URL), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -453,51 +463,40 @@ async function* jiekouChatCompletionDeltaStream(params: {
   if (debugEntry) debugEntry.response = debugText;
 }
 
-type JiekouImagesGenerationResponse = {
-  data?: Array<{
-    url?: string;
-    b64_json?: string;
-  }>;
+type SeedreamImagesGenerationResponse = {
+  images?: string[];
 };
 
-const isNanoBananaModel = (model: string) => /\bnano-banana\b/i.test(model);
+const clampMaxImages = (requested: number, referenceCount: number) =>
+  Math.max(1, Math.min(requested, Math.max(1, 15 - referenceCount)));
 
-const jiekouImagesGeneration = async (params: {
-  model: string;
+const seedreamImagesGeneration = async (params: {
   prompt: string;
   image?: string[];
-  aspectRatio?: string;
   size?: string;
-  imageSize?: string;
-  responseFormat?: string;
+  sequential?: boolean;
+  maxImages?: number;
 }) =>
   withRetry(
-    () =>
-      jiekouPostJson<JiekouImagesGenerationResponse>(
-        '/v1/images/generations',
-        (() => {
-          const useNano = isNanoBananaModel(params.model);
-          const payload: Record<string, any> = {
-            model: params.model,
-            prompt: params.prompt,
-            image: params.image,
-            n: 1,
-            sequential_image_generation: 'disabled',
-            response_format: params.responseFormat || 'url',
-            stream: false,
-            watermark: false,
-          };
-          if (useNano) {
-            if (params.aspectRatio) payload.aspect_ratio = params.aspectRatio;
-            if (params.imageSize && /\bnano-banana-pro\b/i.test(params.model)) payload.image_size = params.imageSize;
-          } else if (params.size) {
-            payload.size = params.size;
-          }
-          return payload;
-        })(),
-        { timeoutMs: JIEKOU_IMAGE_TIMEOUT_MS }
-      ),
-    { tries: 3, baseDelayMs: 800, maxDelayMs: 6500, label: 'jiekouImagesGeneration' }
+    () => {
+      const referenceCount = Array.isArray(params.image) ? params.image.length : 0;
+      const maxImages = clampMaxImages(params.maxImages || 1, referenceCount);
+      const payload: Record<string, any> = {
+        prompt: params.prompt,
+        sequential_image_generation: params.sequential ? 'auto' : 'disabled',
+        watermark: false,
+      };
+      if (params.image && params.image.length > 0) payload.image = params.image;
+      if (params.size) payload.size = params.size;
+      if (params.sequential) {
+        payload.sequential_image_generation_options = { max_images: maxImages };
+      }
+
+      return jiekouPostJson<SeedreamImagesGenerationResponse>(JIEKOU_IMAGE_ENDPOINT, payload, {
+        timeoutMs: JIEKOU_IMAGE_TIMEOUT_MS,
+      });
+    },
+    { tries: 3, baseDelayMs: 800, maxDelayMs: 6500, label: 'seedreamImagesGeneration' }
   );
 
 const extractJSON = (text: string): any => {
@@ -1423,16 +1422,14 @@ export async function* continueStoryStream(params: {
   yield { type: 'done' };
 }
 
-const getImageUrlFromParts = async (params: {
+const getImageUrlsFromParts = async (params: {
   parts: any[];
-  aspectRatio?: string;
-  model: string;
   size?: string;
-  imageSize?: string;
-  responseFormat?: string;
+  sequential?: boolean;
+  maxImages?: number;
   semaphore: ReturnType<typeof createSemaphore>;
 }) => {
-  const { parts, aspectRatio, model, size, imageSize, responseFormat, semaphore } = params;
+  const { parts, size, sequential, maxImages, semaphore } = params;
   const prompt = parts.find((part: any) => typeof part?.text === 'string')?.text as string | undefined;
   if (!prompt) throw new Error('Image prompt is missing');
 
@@ -1442,20 +1439,37 @@ const getImageUrlFromParts = async (params: {
     .map((inline: any) => `data:${inline.mimeType};base64,${inline.data}`);
 
   return semaphore.run(async () => {
-    const response = await jiekouImagesGeneration({
-      model,
+    const response = await seedreamImagesGeneration({
       prompt,
       image: image.length > 0 ? image : undefined,
-      aspectRatio,
       size,
-      imageSize,
-      responseFormat,
+      sequential,
+      maxImages,
     });
 
-    const url = response.data?.[0]?.url;
-    if (!url) throw new Error('No image generated');
-    return url;
+    const urls = Array.isArray(response.images)
+      ? response.images.filter((url) => typeof url === 'string' && url.trim().length > 0)
+      : [];
+    if (urls.length === 0) throw new Error('No image generated');
+    return urls;
   });
+};
+
+const getImageUrlFromParts = async (params: {
+  parts: any[];
+  size?: string;
+  semaphore: ReturnType<typeof createSemaphore>;
+}) => {
+  const urls = await getImageUrlsFromParts({
+    parts: params.parts,
+    size: params.size,
+    sequential: false,
+    maxImages: 1,
+    semaphore: params.semaphore,
+  });
+  const url = urls[0];
+  if (!url) throw new Error('No image generated');
+  return url;
 };
 
 const PROTAGONIST_BASE_PROMPT = `
@@ -1516,6 +1530,54 @@ const buildSpritePrompt = (basePrompt: string, map: Record<string, string>, emot
   return `${basePrompt}\n${expressionPrompt}`.trim();
 };
 
+const buildSpriteSequencePrompt = (basePrompt: string, map: Record<string, string>, emotions: string[]) => {
+  const lines = emotions.map((emotion, index) => {
+    const normalized = normalizeEmotionKey(emotion);
+    const expressionPrompt =
+      map[normalized] ||
+      `EXPRESSION: ${emotion || 'calm neutral'}. Keep it subtle, natural, and not exaggerated.`;
+    return `${index + 1}. ${expressionPrompt}`;
+  });
+
+  return `${basePrompt}
+
+SEQUENTIAL IMAGE SET (ORDERED):
+Generate ${emotions.length} images of the same character and framing.
+Each image must follow the corresponding expression in order:
+${lines.join('\n')}
+Keep all other details identical across the sequence.`.trim();
+};
+
+export const generateSpriteSet = async (
+  emotions: string[],
+  sourceBase64: string,
+  mimeType = 'image/jpeg',
+  isHeroine = true
+): Promise<string[]> => {
+  const cleaned = Array.isArray(emotions)
+    ? emotions.map((emotion) => (typeof emotion === 'string' ? emotion.trim() : '')).filter(Boolean)
+    : [];
+
+  if (cleaned.length === 0) throw new Error('emotions array is required');
+  if (!sourceBase64) throw new Error('必须上传照片或提供参考图');
+
+  const basePrompt = isHeroine ? HEROINE_BASE_PROMPT : PROTAGONIST_BASE_PROMPT;
+  const expressionMap = isHeroine ? HEROINE_EXPRESSION_PROMPTS : PROTAGONIST_EXPRESSION_PROMPTS;
+
+  const parts: any[] = [
+    { inlineData: { mimeType, data: sourceBase64 } },
+    { text: buildSpriteSequencePrompt(basePrompt, expressionMap, cleaned) },
+  ];
+
+  return getImageUrlsFromParts({
+    parts,
+    size: JIEKOU_SPRITE_IMAGE_SIZE || undefined,
+    sequential: true,
+    maxImages: cleaned.length,
+    semaphore: spriteImageSemaphore,
+  });
+};
+
 export const generateProtagonist = async (
   emotion: string,
   userPhotoBase64?: string,
@@ -1530,10 +1592,7 @@ export const generateProtagonist = async (
   parts.push({ text: buildSpritePrompt(PROTAGONIST_BASE_PROMPT, PROTAGONIST_EXPRESSION_PROMPTS, emotion) });
   return getImageUrlFromParts({
     parts,
-    aspectRatio: '1:1',
-    model: JIEKOU_SPRITE_IMAGE_MODEL,
-    imageSize: JIEKOU_SPRITE_IMAGE_SIZE || undefined,
-    responseFormat: 'url',
+    size: JIEKOU_SPRITE_IMAGE_SIZE || undefined,
     semaphore: spriteImageSemaphore,
   });
 };
@@ -1552,10 +1611,7 @@ export const generateHeroine = async (
   parts.push({ text: buildSpritePrompt(HEROINE_BASE_PROMPT, HEROINE_EXPRESSION_PROMPTS, emotion) });
   return getImageUrlFromParts({
     parts,
-    aspectRatio: '1:1',
-    model: JIEKOU_SPRITE_IMAGE_MODEL,
-    imageSize: JIEKOU_SPRITE_IMAGE_SIZE || undefined,
-    responseFormat: 'url',
+    size: JIEKOU_SPRITE_IMAGE_SIZE || undefined,
     semaphore: spriteImageSemaphore,
   });
 };
@@ -1583,8 +1639,6 @@ export const generateBackgroundImage = async (prompt: string) =>
         text: `${BACKGROUND_STYLE_PROMPT.trim()}\n\nSCENE DESCRIPTION:\n${prompt}\n\n${BACKGROUND_CONSTRAINT_PROMPT.trim()}`,
       },
     ],
-    model: JIEKOU_BACKGROUND_IMAGE_MODEL,
     size: JIEKOU_BACKGROUND_IMAGE_SIZE,
-    responseFormat: 'url',
     semaphore: backgroundImageSemaphore,
   });
