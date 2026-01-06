@@ -18,6 +18,7 @@ import VisualNovelPlayer from './components/VisualNovelPlayer';
 import LoginScreen from './components/LoginScreen';
 import Button from './components/Button';
 import CopyLinkModal from './components/CopyLinkModal';
+import SupportModal from './components/SupportModal';
 import { deleteSaveServer } from './services/saveService';
 import { authLogout, authMe } from './services/accountService';
 import { publishPlazaGame } from './services/plazaService';
@@ -39,6 +40,7 @@ const App: React.FC = () => {
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
   const [showBuyCoins, setShowBuyCoins] = useState(false);
   const [showPlaza, setShowPlaza] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
   const [publishingSaveId, setPublishingSaveId] = useState<number | null>(null);
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
   const [publishLink, setPublishLink] = useState<string | null>(null);
@@ -69,10 +71,10 @@ const App: React.FC = () => {
   const [pendingGenerationError, setPendingGenerationError] = useState<string | null>(null);
   const [clientPostProcessing, setClientPostProcessing] = useState(false);
   const [postProcessProgress, setPostProcessProgress] = useState<{ done: number; total: number } | null>(null);
+  const [lastFailedJob, setLastFailedJob] = useState<GenerationJobSummary | null>(null);
   const pollInFlightRef = useRef(false);
   const modnetWarmupRef = useRef(false);
   const coins = accountUser?.coins ?? 0;
-  const failedJobs = generationJobs.filter((job) => job.status === 'failed' || job.status === 'expired');
 
   const iosPromptOverlay = showIosPrompt ? (
     <div className="fixed inset-0 z-[30000] bg-black/80 text-white flex items-center justify-center p-6 overlay-fade-in">
@@ -403,7 +405,7 @@ const App: React.FC = () => {
             onClick={openLoadMenu}
             className="group flex items-center justify-between border-b border-gray-200 py-3 active:border-black transition-colors stagger-enter stagger-3 touch-active"
           >
-            <span className="text-xl font-bold tracking-wide group-active:translate-x-1 transition-transform">读取记忆</span>
+            <span className="text-xl font-bold tracking-wide group-active:translate-x-1 transition-transform">游戏存档</span>
             <span className="font-mono-tech text-xs text-gray-400">02 // 读取</span>
           </button>
 
@@ -414,10 +416,18 @@ const App: React.FC = () => {
              <span className="text-xl font-bold tracking-wide group-active:translate-x-1 transition-transform">嘎拉广场</span>
              <span className="font-mono-tech text-xs text-gray-400">03 // 广场</span>
           </button>
+
+          <button
+            onClick={() => setShowSupportModal(true)}
+            className="group flex items-center justify-between border-b border-gray-200 py-3 active:border-black transition-colors stagger-enter stagger-5 touch-active"
+          >
+             <span className="text-xl font-bold tracking-wide group-active:translate-x-1 transition-transform">遇到问题 / 有好的想法</span>
+             <span className="font-mono-tech text-xs text-gray-400">04 // 反馈</span>
+          </button>
         </div>
 
         {/* Footer */}
-        <div className="stagger-enter stagger-5">
+        <div className="stagger-enter stagger-6">
           <div className="text-[9px] text-gray-400/60 leading-relaxed max-w-xs mx-auto text-center select-none">
             本站为 AI 生成内容演示/娱乐用途；请勿上传或生成违法、色情、暴力、侵权或涉及未成年人的内容。由用户输入/上传导致的后果由用户自行承担。
           </div>
@@ -584,6 +594,14 @@ const App: React.FC = () => {
         setPendingGenerationError(status.jobError || null);
 
         if (status.state === 'failed') {
+          setLastFailedJob({
+            id: pendingGenerationJobId,
+            status: 'failed',
+            message: status.message || '生成失败',
+            error: status.error || status.jobError,
+            createdAt: new Date().toISOString(),
+            progress: 100,
+          });
           try {
             window.localStorage.removeItem(PENDING_JOB_KEY);
           } catch {}
@@ -656,6 +674,7 @@ const App: React.FC = () => {
 
   const handleDeleteSave = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!window.confirm('确定要删除这个存档吗？此操作不可撤销。')) return;
     try {
       await deleteSave(id);
       setSaveList(prev => prev.filter(s => s.id !== id));
@@ -737,6 +756,10 @@ const App: React.FC = () => {
         url={publishLink || ''}
         title="已发布：复制分享链接"
         onClose={() => setPublishLink(null)}
+      />
+      <SupportModal
+        open={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
       />
 
       {accountUser && gameState === GameState.HOME && !showLoadMenu && !showPlaza && !showBuyCoins && (
@@ -828,13 +851,19 @@ const App: React.FC = () => {
                       01 // 创建新嘎拉
                    </button>
                    <button onClick={openLoadMenu} className="text-lg md:text-xl lg:text-2xl font-bold hover:bg-black hover:text-white px-2 md:px-4 py-2 transition-all -ml-2 md:-ml-4 uppercase tracking-wider text-left">
-                      02 // 读取记忆
+                      02 // 游戏存档
                    </button>
                    <button
                      onClick={() => setShowPlaza(true)}
                      className="text-lg md:text-xl lg:text-2xl font-bold hover:bg-black hover:text-white px-2 md:px-4 py-2 transition-all -ml-2 md:-ml-4 uppercase tracking-wider text-left"
                    >
                       03 // 嘎拉广场
+                   </button>
+                   <button
+                     onClick={() => setShowSupportModal(true)}
+                     className="text-lg md:text-xl lg:text-2xl font-bold hover:bg-black hover:text-white px-2 md:px-4 py-2 transition-all -ml-2 md:-ml-4 uppercase tracking-wider text-left"
+                   >
+                      04 // 遇到问题 / 有好的想法
                    </button>
                 </div>
 
@@ -886,7 +915,7 @@ const App: React.FC = () => {
         {gameState === GameState.HOME && showLoadMenu && (
              <div className="absolute inset-0 z-50 bg-white flex flex-col soft-fade-in">
                  <div className="h-14 lg:h-20 border-b border-black flex items-center justify-between px-4 lg:px-10 bg-gray-50">
-                     <h2 className="text-xl lg:text-3xl font-black uppercase">记忆库</h2>
+                     <h2 className="text-xl lg:text-3xl font-black uppercase">游戏存档</h2>
                      <div className="flex gap-2 lg:gap-4">
                         <button onClick={() => setShowLoadMenu(false)} className="text-2xl lg:text-4xl hover:rotate-90 transition-transform">×</button>
                      </div>
@@ -943,44 +972,48 @@ const App: React.FC = () => {
                              </div>
                            </div>
                          )}
-                         {failedJobs.length > 0 && (
+                         {lastFailedJob && (
                            <div className="space-y-3">
-                             <div className="text-xs font-mono-tech text-gray-500">失败/超时任务</div>
-                             {failedJobs.map((job) => (
-                               <div key={job.id} className="bg-white border border-black/10 rounded-2xl shadow-sm p-4 lg:p-5">
-                                 <div className="flex items-start justify-between gap-4">
+                             <div className="text-xs font-mono-tech text-gray-500">最近一条生成失败</div>
+                               <div className="bg-white border border-black/10 rounded-2xl shadow-sm p-4 lg:p-5 relative">
+                                 <button 
+                                   onClick={() => setLastFailedJob(null)}
+                                   className="absolute top-2 right-2 text-gray-400 hover:text-black p-1"
+                                 >
+                                   ✕
+                                 </button>
+                                 <div className="flex items-start justify-between gap-4 pr-6">
                                    <div className="min-w-0">
                                      <div className="text-sm font-semibold text-gray-900">
-                                       {job.status === 'expired' ? '生成超时' : '生成失败'}
+                                       {lastFailedJob.status === 'expired' ? '生成超时' : '生成失败'}
                                      </div>
-                                     <div className="text-xs text-gray-500 mt-1">{job.message || '生成失败'}</div>
-                                     {job.error && (
-                                       <div className="text-xs text-red-600 mt-1">原因：{job.error}</div>
+                                     <div className="text-xs text-gray-500 mt-1">{lastFailedJob.message || '生成失败'}</div>
+                                     {lastFailedJob.error && (
+                                       <div className="text-xs text-red-600 mt-1">原因：{lastFailedJob.error}</div>
                                      )}
                                      <div className="text-[11px] font-mono-tech text-emerald-600 mt-2">已退还所有嘎拉币</div>
                                    </div>
                                    <div className="flex flex-col items-end gap-2">
                                      <button
-                                       onClick={() => handleRetryJob(job.id)}
-                                       disabled={jobActionId === job.id}
+                                       onClick={() => handleRetryJob(lastFailedJob.id)}
+                                       disabled={jobActionId === lastFailedJob.id}
                                        className="bg-black text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-gray-900 transition-colors disabled:opacity-60"
                                      >
-                                       {jobActionId === job.id ? '处理中…' : '重试'}
+                                       {jobActionId === lastFailedJob.id ? '处理中…' : '重试'}
                                      </button>
                                      <div className="text-[10px] font-mono-tech text-gray-400">
-                                       {new Date(job.createdAt).toLocaleString('zh-CN')}
+                                       {new Date(lastFailedJob.createdAt).toLocaleString('zh-CN')}
                                      </div>
                                    </div>
                                  </div>
                                </div>
-                             ))}
                            </div>
                          )}
                          {jobActionMessage && (
                            <div className="text-xs font-mono-tech text-gray-500">{jobActionMessage}</div>
                          )}
                          {saveList.length === 0 ? (
-                             <div className="col-span-full text-center py-20 font-mono-tech text-gray-400">记忆库为空</div>
+                             <div className="col-span-full text-center py-20 font-mono-tech text-gray-400">游戏存档为空</div>
                          ) : (
                              saveList.map(save => (
                                  <div 
@@ -1019,15 +1052,13 @@ const App: React.FC = () => {
                                        >
                                          {publishingSaveId === save.id ? '发布中…' : '发布并复制链接'}
                                        </button>
-                                       <div className="flex gap-2 text-xs lg:text-sm text-white/70 opacity-90 lg:opacity-0 group-hover:opacity-100 transition-opacity">
-                                         <button
-                                           onClick={(e) => handleDeleteSave(save.id, e)}
-                                           title="删除"
-                                           className="hover:text-red-400"
-                                         >
-                                           ✕
-                                         </button>
-                                       </div>
+                                       <button
+                                         onClick={(e) => handleDeleteSave(save.id, e)}
+                                         title="删除存档"
+                                         className="bg-red-600 text-white hover:bg-red-700 px-3 py-2 rounded-xl font-black shadow-xl border border-black/10 transition-colors"
+                                       >
+                                         删除存档
+                                       </button>
                                      </div>
                                  </div>
                              ))

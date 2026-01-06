@@ -147,6 +147,7 @@ export const listGenerationJobs = async (userId: string): Promise<GenerationJobR
     `
       SELECT * FROM generation_jobs
       WHERE user_id = $1
+        AND status NOT IN ('failed', 'expired')
       ORDER BY created_at DESC
     `,
     [userId]

@@ -367,7 +367,7 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
       {
         key: 'start',
         title: '6) 开始生成',
-        body: '点击开始后会跳转到“读取记忆”，显示服务器生成进度。',
+        body: '点击开始后会跳转到“游戏存档”，显示服务器生成进度。',
         getEl: () => startButtonWrapRef.current,
       },
     ],
