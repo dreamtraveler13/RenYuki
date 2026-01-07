@@ -20,17 +20,6 @@ export interface CharacterImages {
   sad?: string;
 }
 
-export type CharacterRole = 'protagonist' | 'heroine';
-
-export interface CharacterProfile {
-  id: string;
-  role: CharacterRole;
-  name: string;
-  images: CharacterImages;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface Choice {
   text: string;
   nextNodeId: string; // Pointer to next node
@@ -97,18 +86,6 @@ export interface PaymentOrder {
   paidAt?: string;
   creditedAt?: string;
   tradeNo?: string;
-}
-
-export interface PlazaRoleSummary {
-  id: string;
-  role: CharacterRole;
-  name: string;
-  coverBase64: string;
-  createdAt: string;
-}
-
-export interface PlazaRole extends PlazaRoleSummary {
-  images: CharacterImages;
 }
 
 export interface PlazaGameSummary {
