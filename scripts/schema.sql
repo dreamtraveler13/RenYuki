@@ -58,26 +58,6 @@ CREATE TABLE IF NOT EXISTS orders (
   raw_notify jsonb
 );
 
-CREATE TABLE IF NOT EXISTS profiles (
-  id uuid PRIMARY KEY,
-  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role text NOT NULL,
-  name text NOT NULL,
-  images_json jsonb NOT NULL,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS plaza_roles (
-  id uuid PRIMARY KEY,
-  created_at timestamptz NOT NULL,
-  uploader_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role text NOT NULL,
-  name text NOT NULL,
-  images_json jsonb NOT NULL,
-  cover_base64 text
-);
-
 CREATE TABLE IF NOT EXISTS saves (
   id bigint PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -122,8 +102,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_device_fingerprint_hash ON device_fingerpr
 CREATE INDEX IF NOT EXISTS idx_device_fingerprints_user_id ON device_fingerprints(user_id);
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_user_id ON generation_jobs(user_id);
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_status ON generation_jobs(status);
-CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id);
-CREATE INDEX IF NOT EXISTS idx_plaza_roles_created_at ON plaza_roles(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_saves_user_id ON saves(user_id);
 CREATE INDEX IF NOT EXISTS idx_plaza_games_created_at ON plaza_games(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_plaza_game_reports_game_id ON plaza_game_reports(plaza_game_id);
