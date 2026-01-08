@@ -32,6 +32,92 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 };
 
+const toDataUrl = (base64: string) => {
+  const trimmed = typeof base64 === 'string' ? base64.trim() : '';
+  if (!trimmed) return '';
+  if (trimmed.startsWith('data:')) return trimmed;
+  if (trimmed.startsWith('/9j')) return `data:image/jpeg;base64,${trimmed}`;
+  if (trimmed.startsWith('iVBORw0')) return `data:image/png;base64,${trimmed}`;
+  return `data:image/png;base64,${trimmed}`;
+};
+
+const loadImage = (src: string, timeoutMs = 12_000) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    const timer = window.setTimeout(() => {
+      reject(new Error('image load timeout'));
+    }, timeoutMs);
+    img.onload = () => {
+      window.clearTimeout(timer);
+      resolve(img);
+    };
+    img.onerror = () => {
+      window.clearTimeout(timer);
+      reject(new Error('image load failed'));
+    };
+    const dataUrl = toDataUrl(src);
+    if (!dataUrl) {
+      window.clearTimeout(timer);
+      reject(new Error('empty image data'));
+      return;
+    }
+    img.src = dataUrl;
+  });
+
+const pickHeroineSprite = (assets: GeneratedAssets) =>
+  assets.heroine?.shy || assets.heroine?.happy || assets.heroine?.normal;
+
+const pickProtagonistSprite = (assets: GeneratedAssets) =>
+  assets.protagonist?.happy || assets.protagonist?.normal;
+
+const composeSaveCover = async (assets: GeneratedAssets): Promise<string | null> => {
+  const bgRaw = Object.values(assets.backgrounds || {})[0];
+  const heroRaw = pickHeroineSprite(assets);
+  const protagRaw = pickProtagonistSprite(assets);
+  if (!bgRaw || !heroRaw) return null;
+
+  try {
+    const bgImg = await loadImage(bgRaw);
+    const heroImg = await loadImage(heroRaw);
+    const protagImg = protagRaw ? await loadImage(protagRaw) : null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1280;
+    canvas.height = 720;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    const scale = Math.max(canvas.width / bgImg.width, canvas.height / bgImg.height);
+    const bgW = bgImg.width * scale;
+    const bgH = bgImg.height * scale;
+    ctx.drawImage(bgImg, (canvas.width - bgW) / 2, (canvas.height - bgH) / 2, bgW, bgH);
+
+    const safeX = canvas.width * 0.08;
+    if (protagImg) {
+      const pHeight = canvas.height * 0.92;
+      const pScale = pHeight / protagImg.height;
+      const pWidth = protagImg.width * pScale;
+      ctx.drawImage(protagImg, safeX, canvas.height - pHeight, pWidth, pHeight);
+
+      const hHeight = canvas.height * 0.96;
+      const hScale = hHeight / heroImg.height;
+      const hWidth = heroImg.width * hScale;
+      ctx.drawImage(heroImg, canvas.width - hWidth - safeX, canvas.height - hHeight, hWidth, hHeight);
+    } else {
+      const hHeight = canvas.height * 0.96;
+      const hScale = hHeight / heroImg.height;
+      const hWidth = heroImg.width * hScale;
+      ctx.drawImage(heroImg, (canvas.width - hWidth) / 2, canvas.height - hHeight, hWidth, hHeight);
+    }
+
+    return canvas.toDataURL('image/png');
+  } catch (e) {
+    console.warn('Save cover compose failed', e);
+    return null;
+  }
+};
+
 const App: React.FC = () => {
   const PENDING_JOB_KEY = 'renyuki:pending-generation-job';
   const [gameState, setGameState] = useState<GameState>(GameState.HOME);
@@ -59,6 +145,8 @@ const App: React.FC = () => {
   
   const [showLoadMenu, setShowLoadMenu] = useState(false);
   const [saveList, setSaveList] = useState<SaveFile[]>([]);
+  const [saveCoverMap, setSaveCoverMap] = useState<Record<number, string>>({});
+  const saveCoverMapRef = useRef<Record<number, string>>({});
   const [generationJobs, setGenerationJobs] = useState<GenerationJobSummary[]>([]);
   const [jobActionId, setJobActionId] = useState<string | null>(null);
   const [jobActionMessage, setJobActionMessage] = useState<string | null>(null);
@@ -387,7 +475,7 @@ const App: React.FC = () => {
         <div className="stagger-enter stagger-1 relative z-40">
           <h1 className="text-5xl font-black tracking-tighter leading-[0.8] mb-1">RenYuki</h1>
           <div className="flex items-center gap-3">
-             <span className="text-xs font-mono-tech text-gray-400 tracking-widest uppercase">你知道吗，renyuki生成一次的成本能达到4.25¥</span>
+             <span className="text-xs font-mono-tech text-gray-400 tracking-widest uppercase">两分钟一集的校园剧情小玩具</span>
           </div>
         </div>
 
@@ -429,7 +517,7 @@ const App: React.FC = () => {
         {/* Footer */}
         <div className="stagger-enter stagger-6">
           <div className="text-[9px] text-gray-400/60 leading-relaxed max-w-xs mx-auto text-center select-none">
-            本站为 AI 生成内容演示/娱乐用途；请勿上传或生成违法、色情、暴力、侵权或涉及未成年人的内容。由用户输入/上传导致的后果由用户自行承担。
+            本站为 AI 剧情生成演示与娱乐用途。请勿上传违法、侵权或不当内容；由用户输入/上传产生的后果由用户自行承担。
           </div>
         </div>
       </div>
@@ -490,6 +578,44 @@ const App: React.FC = () => {
     setSaveList(saves);
     setGenerationJobs(jobs);
   };
+
+  useEffect(() => {
+    saveCoverMapRef.current = saveCoverMap;
+  }, [saveCoverMap]);
+
+  useEffect(() => {
+    let canceled = false;
+    const ids = new Set(saveList.map((save) => save.id));
+
+    setSaveCoverMap((prev) => {
+      const next: Record<number, string> = {};
+      Object.entries(prev).forEach(([id, cover]) => {
+        const numId = Number(id);
+        if (ids.has(numId)) next[numId] = cover;
+      });
+      return next;
+    });
+
+    const run = async () => {
+      for (const save of saveList) {
+        if (canceled) return;
+        if (saveCoverMapRef.current[save.id]) continue;
+        const cover = await composeSaveCover(save.assets);
+        if (canceled) return;
+        if (cover) {
+          setSaveCoverMap((prev) => ({ ...prev, [save.id]: cover }));
+        }
+      }
+    };
+
+    if (saveList.length > 0) {
+      void run();
+    }
+
+    return () => {
+      canceled = true;
+    };
+  }, [saveList]);
 
   const openLoadMenu = async () => {
     setShowLoadMenu(true);
@@ -560,8 +686,7 @@ const App: React.FC = () => {
     };
 
     try {
-      const cover = finalAssets.heroine?.normal || undefined;
-      await saveGame(payload.script, finalAssets, payload.userProfile, payload.initialNodeId, payload.initialAffinity, cover);
+      await saveGame(payload.script, finalAssets, payload.userProfile, payload.initialNodeId, payload.initialAffinity);
       await refreshMemory();
     } catch {
       // keep server save if local persistence fails
@@ -674,7 +799,7 @@ const App: React.FC = () => {
 
   const handleDeleteSave = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm('确定要删除这个存档吗？此操作不可撤销。')) return;
+    if (!window.confirm('确定要删除这个存档吗？删除后将无法恢复。')) return;
     try {
       await deleteSave(id);
       setSaveList(prev => prev.filter(s => s.id !== id));
@@ -842,7 +967,7 @@ const App: React.FC = () => {
              <div className="col-span-5 h-full flex flex-col justify-center px-4 md:px-8 lg:px-20 relative bg-white border-r border-black z-20">
                 <div className="mb-8 lg:mb-20">
                     <h1 className="text-4xl md:text-5xl lg:text-8xl font-black tracking-tighter leading-[0.8]">RenYuki</h1>
-                    <h2 className="text-sm md:text-base lg:text-sm font-light uppercase tracking-[0.3em] mt-2 whitespace-nowrap text-gray-400">你知道吗，renyuki生成一次的成本能达到4.25¥</h2>
+                    <h2 className="text-sm md:text-base lg:text-sm font-light uppercase tracking-[0.3em] mt-2 whitespace-nowrap text-gray-400">两分钟一集的校园剧情小玩具</h2>
                     <div className="w-8 md:w-16 lg:w-20 h-1 lg:h-2 bg-black mt-4 lg:mt-6"></div>
                 </div>
 
@@ -868,7 +993,7 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="mt-10 lg:mt-14 text-[10px] lg:text-[11px] text-gray-400/60 leading-relaxed max-w-md select-none">
-                  本站为 AI 生成内容演示/娱乐用途；请勿上传或生成违法、色情、暴力、侵权或涉及未成年人的内容。由用户输入/上传导致的后果由用户自行承担。
+                  本站为 AI 剧情生成演示与娱乐用途。请勿上传违法、侵权或不当内容；由用户输入/上传产生的后果由用户自行承担。
                 </div>
              </div>
 
@@ -915,7 +1040,7 @@ const App: React.FC = () => {
         {gameState === GameState.HOME && showLoadMenu && (
              <div className="absolute inset-0 z-50 bg-white flex flex-col soft-fade-in">
                  <div className="h-14 lg:h-20 border-b border-black flex items-center justify-between px-4 lg:px-10 bg-gray-50">
-                     <h2 className="text-xl lg:text-3xl font-black uppercase">游戏存档</h2>
+                     <h2 className="text-xl lg:text-3xl font-black uppercase">本地游戏存档</h2>
                      <div className="flex gap-2 lg:gap-4">
                         <button onClick={() => setShowLoadMenu(false)} className="text-2xl lg:text-4xl hover:rotate-90 transition-transform">×</button>
                      </div>
@@ -1013,7 +1138,7 @@ const App: React.FC = () => {
                            <div className="text-xs font-mono-tech text-gray-500">{jobActionMessage}</div>
                          )}
                          {saveList.length === 0 ? (
-                             <div className="col-span-full text-center py-20 font-mono-tech text-gray-400">游戏存档为空</div>
+                             <div className="col-span-full text-center py-20 font-mono-tech text-gray-400">暂无本地存档</div>
                          ) : (
                              saveList.map(save => (
                                  <div 
@@ -1022,7 +1147,7 @@ const App: React.FC = () => {
                                    className="group relative bg-black cursor-pointer transition-all shadow-xl h-[calc(100vh-6rem)] w-full overflow-hidden"
                                  >
                                      <img
-                                       src={`data:image/png;base64,${save.memoryCoverBase64 || save.assets.heroine.normal}`}
+                                       src={saveCoverMap[save.id] || toDataUrl(save.assets.heroine?.normal || '')}
                                        className="absolute inset-0 w-full h-full object-cover"
                                        alt={save.title}
                                      />
@@ -1050,7 +1175,7 @@ const App: React.FC = () => {
                                          className="bg-white text-black hover:bg-white/95 px-3 py-2 rounded-xl font-black shadow-xl border border-black/10"
                                          disabled={publishingSaveId === save.id}
                                        >
-                                         {publishingSaveId === save.id ? '发布中…' : '发布并复制链接'}
+                                         {publishingSaveId === save.id ? '发布中…' : '发布到嘎拉广场并复制链接'}
                                        </button>
                                        <button
                                          onClick={(e) => handleDeleteSave(save.id, e)}

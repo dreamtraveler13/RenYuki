@@ -123,9 +123,6 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const [currentBackground, setCurrentBackground] = useState<string | null>(null);
   const [gameEnded, setGameEnded] = useState(false);
   const [endNotified, setEndNotified] = useState(false);
-  const [endingCover, setEndingCover] = useState<string | null>(null);
-  const [endingCoverGenerating, setEndingCoverGenerating] = useState(false);
-  const [showEndingCoverModal, setShowEndingCoverModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -505,9 +502,8 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const handleSaveGame = async () => {
     setIsSaving(true);
     try {
-      const cover = gameEnded ? endingCover || undefined : undefined;
-      await saveGame(runtimeScript, assetsWithVoice, userProfile, currentNodeId, affinity, cover);
-      setSaveMessage("保存成功");
+      await saveGame(runtimeScript, assetsWithVoice, userProfile, currentNodeId, affinity);
+      setSaveMessage("保存成功（仅保存在本地）");
     } catch (e) {
       setSaveMessage("保存失败");
     } finally {
@@ -531,7 +527,6 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
         script: runtimeScript,
         assets: assetsWithVoice,
         userProfile,
-        memoryCoverBase64: endingCover || undefined,
       };
       const game = await publishPlazaGame(saveData);
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -809,139 +804,6 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
     }
   }, [waitingForNodeId, runtimeScript]);
 
-  // 游戏结束后生成“回忆相片”（纯本地合成，不调用 AI）
-  useEffect(() => {
-    if (!gameEnded) return;
-    if (endingCover) return;
-    if (endingCoverGenerating) return;
-    if (showEndingCoverModal) return;
-
-    let canceled = false;
-
-    const toDataUrl = (base64: string) => {
-      const trimmed = typeof base64 === 'string' ? base64.trim() : '';
-      if (!trimmed) return '';
-      if (trimmed.startsWith('data:')) return trimmed;
-      if (trimmed.startsWith('/9j')) return `data:image/jpeg;base64,${trimmed}`;
-      if (trimmed.startsWith('iVBORw0')) return `data:image/png;base64,${trimmed}`;
-      return `data:image/png;base64,${trimmed}`;
-    };
-
-    const loadImage = (src: string, timeoutMs = 12_000) =>
-      new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        const timer = window.setTimeout(() => {
-          reject(new Error('image load timeout'));
-        }, timeoutMs);
-        img.onload = () => {
-          window.clearTimeout(timer);
-          resolve(img);
-        };
-        img.onerror = () => {
-          window.clearTimeout(timer);
-          reject(new Error('image load failed'));
-        };
-        const dataUrl = toDataUrl(src);
-        if (!dataUrl) {
-          window.clearTimeout(timer);
-          reject(new Error('empty image data'));
-          return;
-        }
-        img.src = dataUrl;
-      });
-
-    const pickHeroineSprite = () =>
-      assets.heroine?.shy || assets.heroine?.happy || assets.heroine?.normal;
-
-    const pickProtagonistSprite = () =>
-      assets.protagonist?.happy || assets.protagonist?.normal;
-
-    const composePhoto = async (): Promise<string | null> => {
-      const bgRaw = currentBackground || Object.values(assets.backgrounds)[0];
-      const heroRaw = pickHeroineSprite();
-      const protagRaw = pickProtagonistSprite();
-      if (!bgRaw || !heroRaw) return null;
-
-      try {
-        const bgImg = await loadImage(bgRaw);
-        const heroImg = await loadImage(heroRaw);
-        const protagImg = protagRaw ? await loadImage(protagRaw) : null;
-
-        const canvas = document.createElement('canvas');
-        // 4:3 相片比例
-        canvas.width = 1200;
-        canvas.height = 900;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return null;
-
-        // 背景铺满
-        const scale = Math.max(canvas.width / bgImg.width, canvas.height / bgImg.height);
-        const bgW = bgImg.width * scale;
-        const bgH = bgImg.height * scale;
-        ctx.drawImage(bgImg, (canvas.width - bgW) / 2, (canvas.height - bgH) / 2, bgW, bgH);
-
-        // 轻微色调与暗角，让更像“相片”
-        ctx.fillStyle = 'rgba(255, 245, 235, 0.06)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        const vignette = ctx.createRadialGradient(
-          canvas.width / 2,
-          canvas.height / 2,
-          canvas.height * 0.2,
-          canvas.width / 2,
-          canvas.height / 2,
-          canvas.height * 0.8
-        );
-        vignette.addColorStop(0, 'rgba(0,0,0,0)');
-        vignette.addColorStop(1, 'rgba(0,0,0,0.28)');
-        ctx.fillStyle = vignette;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // 角色合成（底部对齐，留出相片边缘的安全区）
-        const safeX = canvas.width * 0.10;
-
-        if (protagImg) {
-          const pHeight = canvas.height * 0.92;
-          const pScale = pHeight / protagImg.height;
-          const pWidth = protagImg.width * pScale;
-          ctx.drawImage(protagImg, safeX, canvas.height - pHeight, pWidth, pHeight);
-
-          const hHeight = canvas.height * 0.96;
-          const hScale = hHeight / heroImg.height;
-          const hWidth = heroImg.width * hScale;
-          ctx.drawImage(heroImg, canvas.width - hWidth - safeX, canvas.height - hHeight, hWidth, hHeight);
-        } else {
-          const hHeight = canvas.height * 0.96;
-          const hScale = hHeight / heroImg.height;
-          const hWidth = heroImg.width * hScale;
-          ctx.drawImage(heroImg, (canvas.width - hWidth) / 2, canvas.height - hHeight, hWidth, hHeight);
-        }
-
-        return canvas.toDataURL('image/png').split(',')[1];
-      } catch (e) {
-        console.warn('Memory photo compose failed', e);
-        return null;
-      }
-    };
-
-    const run = async () => {
-      setEndingCoverGenerating(true);
-      setShowEndingCoverModal(true);
-      try {
-        const imageBase64 = await composePhoto();
-        if (!canceled && imageBase64) setEndingCover(imageBase64);
-      } finally {
-        if (!canceled) setEndingCoverGenerating(false);
-      }
-    };
-
-    run();
-    return () => {
-      canceled = true;
-    };
-  }, [gameEnded, endingCover, endingCoverGenerating, showEndingCoverModal, currentBackground, assets.backgrounds, assets.heroine, assets.protagonist]);
-
   // Helper for Animation Class
   const getSpriteAnimClass = (emotion: string) => {
     switch (emotion) {
@@ -1001,76 +863,15 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
          </div>
          <div className="absolute inset-0 bg-black/55" />
 
-         {/* 回忆相片弹窗 */}
-         {showEndingCoverModal && (
-           <div
-             className="absolute inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
-             onClick={() => setShowEndingCoverModal(false)}
-           >
-             <div
-               className="relative"
-               onClick={(e) => {
-                 e.stopPropagation();
-               }}
-             >
-               <div className="bg-white shadow-[14px_14px_0px_0px_rgba(0,0,0,0.65)] border-2 border-black p-4 pb-10 rotate-[-2deg] animate-photo-pop">
-                 <div className="relative w-[min(82vw,560px)] aspect-[4/3] bg-black overflow-hidden border border-black">
-                   {endingCover ? (
-                     <>
-                       <img
-                         src={`data:image/png;base64,${endingCover}`}
-                         className="absolute inset-0 w-full h-full object-cover"
-                         alt="回忆相片"
-                       />
-                       <div
-                         className="absolute inset-0 opacity-25 mix-blend-overlay pointer-events-none"
-                         style={{
-                           backgroundImage:
-                             'repeating-linear-gradient(0deg, rgba(255,255,255,0.06) 0px, rgba(255,255,255,0.06) 1px, rgba(0,0,0,0) 2px, rgba(0,0,0,0) 4px)',
-                         }}
-                       />
-                     </>
-                   ) : endingCoverGenerating ? (
-                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
-                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                       <div className="text-xs font-mono-tech opacity-90">正在生成回忆相片…</div>
-                     </div>
-                   ) : (
-                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
-                       <div className="text-xs font-mono-tech opacity-90">回忆相片生成失败</div>
-                       <div className="text-[10px] font-mono-tech opacity-70">可以关闭此窗口继续</div>
-                     </div>
-                   )}
-                 </div>
-                 <div className="mt-3 text-center text-xs font-mono-tech text-gray-700">
-                   回忆相片
-                 </div>
-               </div>
-
-               <button
-                 className="absolute -top-3 -right-3 bg-black text-white w-8 h-8 border-2 border-white shadow-[4px_4px_0px_0px_rgba(0,0,0,0.35)]"
-                 onClick={() => setShowEndingCoverModal(false)}
-               >
-                 ×
-               </button>
-             </div>
-           </div>
-         )}
-
          <div className={`relative z-10 bg-white/95 backdrop-blur-md p-6 ${d('lg:p-12')} border border-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] text-center max-w-lg animate-pop m-4`}>
             <h1 className={`text-4xl ${d('lg:text-6xl')} font-black mb-4 ${d('lg:mb-6')} uppercase`}>完</h1>
             <div className={`mb-4 ${d('lg:mb-8')} border-t border-b border-gray-200 py-4`}>
                <p className={`text-[10px] ${d('lg:text-xs')} text-gray-500 font-mono-tech mb-2`}>好感度</p>
                <div className={`text-6xl ${d('lg:text-8xl')} font-black`}>{affinity}%</div>
             </div>
-            {endingCoverGenerating && (
-              <p className="text-[10px] lg:text-xs text-gray-500 font-mono-tech mb-2">
-                正在生成回忆相片…
-              </p>
-            )}
             <div className="space-y-4">
                 <Button onClick={handlePublishToPlaza} className="w-full" disabled={isPublishing} isTouch={isTouchDevice}>
-                    {isPublishing ? "正在发布..." : "发布到嘎拉广场后复制分享链接"}
+                    {isPublishing ? "正在发布..." : "发布到嘎拉广场并复制分享链接"}
                 </Button>
                 {publishMessage && <p className="text-green-600 font-mono-tech text-xs">{publishMessage}</p>}
                 <Button onClick={onExit} variant="secondary" className="w-full" isTouch={isTouchDevice}>返回根目录</Button>

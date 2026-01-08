@@ -19,7 +19,6 @@ const rowToSave = (row: any): SaveFile => ({
   script: jsonParse<GameScript>(row.script_json, { title: 'Untitled Story', heroineName: 'Unknown', startNodeId: '', nodes: {} }),
   assets: jsonParse<GeneratedAssets>(row.assets_json, { heroine: { normal: '', happy: '', surprised: '', angry: '', shy: '' }, protagonist: { normal: '', happy: '', surprised: '', angry: '', shy: '' }, backgrounds: {}, music: {}, voice: {} }),
   userProfile: jsonParse<UserProfile>(row.user_profile_json, { name: '', avatarBase64: '' }),
-  memoryCoverBase64: row.memory_cover_base64 || undefined,
 });
 
 export const listSaves = async (userId: string): Promise<SaveFile[]> => {
@@ -36,7 +35,6 @@ export const createSave = async (params: {
   userProfile: UserProfile;
   currentNodeId: string;
   affinity: number;
-  memoryCoverBase64?: string;
 }): Promise<SaveFile> => {
   await pruneExpiredSaves(params.userId);
   const db = await getDb();
@@ -53,15 +51,14 @@ export const createSave = async (params: {
     script: params.script,
     assets: params.assets,
     userProfile: params.userProfile,
-    memoryCoverBase64: params.memoryCoverBase64,
   };
 
   await db.query(
     `
       INSERT INTO saves (
         id, user_id, title, date, heroine_name, affinity, current_node_id,
-        script_json, assets_json, user_profile_json, memory_cover_base64, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12)
+        script_json, assets_json, user_profile_json, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11)
     `,
     [
       save.id,
@@ -74,7 +71,6 @@ export const createSave = async (params: {
       jsonStringify(save.script),
       jsonStringify(save.assets),
       jsonStringify(save.userProfile),
-      save.memoryCoverBase64 || null,
       now.toISOString(),
     ]
   );
@@ -96,8 +92,8 @@ export const restoreSave = async (userId: string, saveData: SaveFile): Promise<S
     `
       INSERT INTO saves (
         id, user_id, title, date, heroine_name, affinity, current_node_id,
-        script_json, assets_json, user_profile_json, memory_cover_base64, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12)
+        script_json, assets_json, user_profile_json, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11)
     `,
     [
       newSave.id,
@@ -110,7 +106,6 @@ export const restoreSave = async (userId: string, saveData: SaveFile): Promise<S
       jsonStringify(newSave.script),
       jsonStringify(newSave.assets),
       jsonStringify(newSave.userProfile),
-      newSave.memoryCoverBase64 || null,
       now.toISOString(),
     ]
   );
@@ -121,20 +116,18 @@ export const restoreSave = async (userId: string, saveData: SaveFile): Promise<S
 export const updateSaveAssets = async (
   userId: string,
   id: number,
-  assets: GeneratedAssets,
-  memoryCoverBase64?: string
+  assets: GeneratedAssets
 ): Promise<SaveFile | null> => {
   await pruneExpiredSaves(userId);
   const db = await getDb();
   const { rows } = await db.query(
     `
       UPDATE saves
-      SET assets_json = $3::jsonb,
-          memory_cover_base64 = $4
+      SET assets_json = $3::jsonb
       WHERE id = $1 AND user_id = $2
       RETURNING *
     `,
-    [id, userId, jsonStringify(assets), memoryCoverBase64 || null]
+    [id, userId, jsonStringify(assets)]
   );
   return rows[0] ? rowToSave(rows[0]) : null;
 };

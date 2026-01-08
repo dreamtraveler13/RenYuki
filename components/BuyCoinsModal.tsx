@@ -212,6 +212,10 @@ const BuyCoinsModal: React.FC<Props> = ({ open, coins, onClose, onCoinsUpdated }
                     ))}
         
                   </div>
+                  
+                  <div className="mt-2 text-[10px] font-mono-tech text-gray-400">
+                    嘎拉币用于体验生成内容，为公测支持性质
+                  </div>
         
         
         

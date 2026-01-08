@@ -77,7 +77,7 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = 
   const remove = async (id: string) => {
     if (!isAdmin && viewMode !== 'mine') return;
     if (deletingId || loadingId) return;
-    const ok = window.confirm('确定要从嘎拉广场删除这个游戏吗？此操作不可撤销。');
+    const ok = window.confirm('确定要从嘎拉广场删除这个作品吗？删除后将无法恢复。');
     if (!ok) return;
     setDeletingId(id);
     setErrorMessage(null);
@@ -125,7 +125,7 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = 
         <div className="h-16 border-b border-black bg-white shrink-0 flex items-center justify-between px-6 z-20">
           <div className="flex flex-col">
              <div className="text-xl font-black tracking-tighter uppercase leading-none">嘎拉广场</div>
-             <div className="text-[9px] font-mono-tech text-gray-400 tracking-widest mt-1">公共档案馆</div>
+             <div className="text-[9px] font-mono-tech text-gray-400 tracking-widest mt-1">用户创作展示区</div>
           </div>
           <div className="flex items-center gap-4">
             <button
@@ -155,6 +155,11 @@ const GalaPlazaModal: React.FC<Props> = ({ open, onClose, onPlaySave, isAdmin = 
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto bg-gray-100 p-0 md:p-8">
+          <div className="px-4 pt-4 md:px-0 md:pt-0 md:mb-4">
+            <div className="text-[11px] text-gray-700 bg-yellow-50 border border-yellow-200 px-3 py-2">
+              提示：嘎拉广场为公开展示区。请勿发布含真人肖像、个人信息或任何侵权内容；发布/分享前请确认已获得必要授权。
+            </div>
+          </div>
           
           {/* Search Bar Area */}
           <div className="sticky top-0 z-10 bg-gray-100/95 backdrop-blur border-b border-black/5 px-4 py-3 md:px-0 md:py-0 md:bg-transparent md:border-0 md:mb-6">

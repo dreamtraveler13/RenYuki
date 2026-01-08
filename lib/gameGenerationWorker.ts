@@ -340,7 +340,6 @@ export const startGameGenerationJob = async (params: {
           userProfile: result.userProfile,
           currentNodeId: result.initialNodeId,
           affinity: result.initialAffinity,
-          memoryCoverBase64: result.assets.heroine?.normal,
         });
         await updateGenerationJobRecord(userId, jobId, {
           resultSaveId: save.id,

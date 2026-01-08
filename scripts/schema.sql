@@ -69,7 +69,6 @@ CREATE TABLE IF NOT EXISTS saves (
   script_json jsonb NOT NULL,
   assets_json jsonb NOT NULL,
   user_profile_json jsonb NOT NULL,
-  memory_cover_base64 text,
   created_at timestamptz NOT NULL
 );
 

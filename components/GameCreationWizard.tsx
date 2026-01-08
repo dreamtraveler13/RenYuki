@@ -264,7 +264,7 @@ const OnboardingTour: React.FC<{
             ×
           </button>
         </div>
-        <div className="mt-3 text-sm text-gray-700 leading-relaxed">{step?.body}</div>
+        <div className="mt-3 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{step?.body}</div>
 
         <div className="mt-5 flex items-center justify-between gap-3">
           <button
@@ -337,7 +337,7 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
       {
         key: 'plot',
         title: '1) 场景设定',
-        body: '写一句你想要的开场设定即可。越具体越好（时间/地点/氛围/事件）。',
+        body: '写一句开场设定，像写小说一样即可\n（时间 / 地点 / 氛围 / 发生了什么）',
         getEl: () => plotRef.current,
       },
       {
@@ -355,13 +355,13 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
       {
         key: 'heroine',
         title: '4) 女主角（必填照片）',
-        body: '女主名字可留空（默认 Unit-01）。必须上传女主照片。',
+        body: '女主名字可留空（默认 Unit-01）\n请上传你拥有使用授权的图片素材，用于生成一段虚构剧情',
         getEl: () => heroineNameRef.current || heroineUploadRef.current,
       },
       {
         key: 'max-mode',
         title: '5) MAX MODE',
-        body: '开启后消耗 2 个嘎拉币（普通 1 个），立绘更多更精细。随时可切换。',
+        body: '消耗 2 个嘎拉币\n表情与剧情更丰富（仅影响本次虚构剧情）',
         getEl: () => maxModeRef.current,
       },
       {
@@ -607,7 +607,7 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
                         <img src={`data:${protagonistMimeType};base64,${protagonistPhoto}`} className="h-full object-contain mix-blend-multiply" alt="预览" />
                       ) : (
                         <div className="text-center group-hover:scale-105 transition-transform">
-                          <div className="text-xs font-bold text-gray-900 uppercase tracking-widest border border-black px-2 py-1 inline-block">上传图片</div>
+                          <div className="text-xs font-bold text-gray-900 uppercase tracking-widest border border-black px-2 py-1 inline-block">上传图片素材</div>
                         </div>
 	                      )}
 	                    </div>
@@ -620,7 +620,7 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
 	            <div className="space-y-6 stagger-enter stagger-2">
 	                   <div className="flex items-baseline gap-2 mb-2 border-b border-black pb-2">
 	                     <span className="font-mono-tech text-xs text-black bg-gray-200 px-1">03</span>
-	                     <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">女主角</h3>
+	                     <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">攻略对象</h3>
 	                   </div>
 
                    <div className="group relative">
@@ -646,11 +646,11 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
                         <img src={`data:${heroineMimeType};base64,${heroinePhoto}`} className="h-full object-contain mix-blend-multiply" alt="预览" />
                       ) : (
                         <div className="text-center group-hover:scale-105 transition-transform">
-                          <div className="text-xs font-bold text-gray-900 uppercase tracking-widest border border-black px-2 py-1 inline-block">上传图片</div>
+                          <div className="text-xs font-bold text-gray-900 uppercase tracking-widest border border-black px-2 py-1 inline-block">上传图片素材</div>
                         </div>
 	                      )}
 	                    </div>
-                      <div className="text-[9px] font-mono-tech text-gray-400 mt-2">必须上传女主照片</div>
+                      <div className="text-[9px] font-mono-tech text-gray-400 mt-2">必须上传图片素材</div>
 	                  </div>
 	              </div>
             </div>
@@ -662,9 +662,7 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
               <div className="flex items-center justify-between gap-3">
                 <label
                   ref={maxModeRef}
-                  className={`flex items-center gap-2 select-none cursor-pointer border px-3 py-2 transition-all duration-200 group ${
-                    maxMode ? 'border-black bg-black text-white' : 'border-black/20 bg-transparent text-black'
-                  }`}
+                  className={`flex items-center gap-2 select-none cursor-pointer border px-3 py-2 transition-all duration-200 group ${maxMode ? 'border-black bg-black text-white' : 'border-black/20 bg-transparent text-black'}`}
                   title={maxMode ? 'MAX模式：2 嘎拉币，立绘更多更精细' : '普通模式：1 嘎拉币'}
                 >
                   <input
@@ -679,7 +677,7 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
                   </span>
                 </label>
                 <div className="hidden md:block text-xs text-gray-500 font-mono-tech">
-                  生成需等待，请勿关闭页面
+                  正在生成，请保持页面打开（可能需要一点时间）
                 </div>
               </div>
 

@@ -59,7 +59,7 @@ const toSummaryFromSave = (params: {
   reportCount?: number;
   save: SaveFile;
 }): PlazaGameSummary => {
-  const coverBase64 = params.save.memoryCoverBase64 || params.save.assets?.heroine?.normal || '';
+  const coverBase64 = params.save.assets?.heroine?.normal || '';
   return {
     id: params.id,
     title: params.save.title || 'Untitled Story',

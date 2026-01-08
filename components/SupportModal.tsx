@@ -53,7 +53,7 @@ const SupportModal: React.FC<Props> = ({ open, onClose }) => {
         </div>
         <div className="text-sm text-gray-800 leading-relaxed">
            遇到问题，或者有好的想法？<br/>
-           每一条反馈都会被认真对待。因站长为初中生，工作日回复可能有所延迟，敬请理解。<br/>
+           每一条反馈都会被认真对待。因站长为初中生，工作日回复可能较慢，感谢理解。<br/>
         </div>
         <input
           ref={inputRef}

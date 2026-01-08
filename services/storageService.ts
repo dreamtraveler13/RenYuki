@@ -39,8 +39,7 @@ export const saveGame = async (
   assets: GeneratedAssets,
   userProfile: UserProfile,
   currentNodeId: string,
-  affinity: number,
-  memoryCoverBase64?: string
+  affinity: number
 ): Promise<void> => {
   const db = await openDB();
   const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -55,8 +54,7 @@ export const saveGame = async (
     currentNodeId,
     script,
     assets,
-    userProfile,
-    memoryCoverBase64
+    userProfile
   };
 
   return new Promise((resolve, reject) => {

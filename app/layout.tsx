@@ -2,8 +2,8 @@ import Script from 'next/script';
 import './globals.css';
 
 export const metadata = {
-  title: 'RenYuki: 意淫你的嘎拉',
-  description: 'AI 驱动的交互式嘎拉生成器',
+  title: 'RenYuki：AI 校园恋爱 Galgame 工坊',
+  description: 'AI 驱动的互动剧情生成器',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

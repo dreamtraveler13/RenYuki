@@ -113,8 +113,6 @@ export interface SaveFile {
   script: GameScript;
   assets: GeneratedAssets;
   userProfile: UserProfile;
-  // Optional memory cover image (sweet couple photo) to show in load screen
-  memoryCoverBase64?: string;
 }
 
 export interface GameGenerationInput {

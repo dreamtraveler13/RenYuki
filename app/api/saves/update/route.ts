@@ -10,14 +10,13 @@ export async function POST(req: NextRequest) {
   const rawId = payload?.id;
   const id = typeof rawId === 'number' ? rawId : Number(rawId);
   const assets = payload?.assets;
-  const memoryCoverBase64 = payload?.memoryCoverBase64;
 
   if (!Number.isFinite(id) || !assets) {
     return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
   }
 
   try {
-    const save = await updateSaveAssets(userId, id, assets, memoryCoverBase64);
+    const save = await updateSaveAssets(userId, id, assets);
     if (!save) return NextResponse.json({ error: 'not found' }, { status: 404 });
     return NextResponse.json({ save });
   } catch (err: any) {

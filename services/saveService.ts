@@ -48,12 +48,11 @@ export const saveGameServer = async (
   assets: GeneratedAssets,
   userProfile: UserProfile,
   currentNodeId: string,
-  affinity: number,
-  memoryCoverBase64?: string
+  affinity: number
 ): Promise<SaveFile> => {
   const data = await requestJson<{ save: SaveFile }>('/api/saves/save', {
     method: 'POST',
-    body: JSON.stringify({ script, assets, userProfile, currentNodeId, affinity, memoryCoverBase64 }),
+    body: JSON.stringify({ script, assets, userProfile, currentNodeId, affinity }),
   });
   return data.save;
 };
@@ -72,12 +71,11 @@ export const deleteSaveServer = async (id: number): Promise<void> => {
 
 export const updateSaveAssetsServer = async (
   id: number,
-  assets: GeneratedAssets,
-  memoryCoverBase64?: string
+  assets: GeneratedAssets
 ): Promise<SaveFile> => {
   const data = await requestJson<{ save: SaveFile }>('/api/saves/update', {
     method: 'POST',
-    body: JSON.stringify({ id, assets, memoryCoverBase64 }),
+    body: JSON.stringify({ id, assets }),
   });
   return data.save;
 };
