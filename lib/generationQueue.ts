@@ -52,15 +52,17 @@ const parseNumber = (value: string | undefined, fallback: number) => {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 };
 
-const DEFAULT_CONCURRENCY = 2;
+const DEFAULT_CONCURRENCY = 5;
 const DEFAULT_QUEUE_LIMIT = 20;
+const MAX_CONCURRENCY = 5;
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const queue = new GenerationQueue(
-  parseNumber(process.env.GENERATE_GAME_CONCURRENCY, DEFAULT_CONCURRENCY),
+  clamp(parseNumber(process.env.GENERATE_GAME_CONCURRENCY, DEFAULT_CONCURRENCY), 1, MAX_CONCURRENCY),
   parseNumber(process.env.GENERATE_GAME_QUEUE_LIMIT, DEFAULT_QUEUE_LIMIT)
 );
 
 export const getGenerationQueueStatus = () => queue.getStatus();
 
 export const enqueueGenerationJob = (task: TaskFn) => queue.enqueue(task);
-

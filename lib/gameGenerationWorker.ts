@@ -239,7 +239,7 @@ const buildGamePayload = async (
       },
     });
     const titleFromUser = plotDescription.length > 0 ? plotDescription : script.title;
-    return { ...script, title: titleFromUser };
+    return { ...script, title: titleFromUser, maxMode: isMax };
   })();
 
   const voicePromise = (async () => {

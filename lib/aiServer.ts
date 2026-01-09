@@ -1139,6 +1139,13 @@ export async function* continueStoryStream(params: {
     - Decide an "affinityDelta" that reflects how this player option affects the heroine's affection.
     - Pace it so a full playthrough typically reaches 100 within about 6–10 player choices (avoid stagnation).
     - If (currentAffinity + affinityDelta) reaches 100, you MUST write the climax + confession + sweet ending and finish the story.
+    - CHALLENGE RULE (IMPORTANT): The heroine is not an instant-love NPC.
+      - If the relationship is still early (use your judgement from CURRENT AFFINITY and recent dialogue context),
+        and the player suddenly pushes strong love/commitment/physical intimacy (e.g. "I love you", "date me", "be my girlfriend",
+        "marry me", "kiss", overly possessive lines), the heroine should feel pressured/awkward and her affection should DROP.
+      - In that situation, you MUST set affinityDelta to a NEGATIVE number (suggested range: -2 to -8 depending on abruptness),
+        and write the heroine's reaction accordingly (shy/cute but clearly uncomfortable; set boundaries; redirect the pace).
+      - If the relationship already has clear build-up and affinity is high, confession can be positive; keep it believable.
 
     STYLE:
     - Sweet, moe, youth romance, comedic beats, doki-doki moments.
@@ -1189,6 +1196,7 @@ export async function* continueStoryStream(params: {
     - You MUST output JSON Lines (JSONL): ONE JSON object PER LINE.
     - LINE 1 MUST be the affinity meta object:
       {"type":"affinity","delta": number, "ending": boolean}
+      - delta can be NEGATIVE when the player's choice makes her uncomfortable (especially "too fast love confession" early on).
     - AFTER line 1, each line MUST be a single STORY NODE object. Do NOT wrap in an array. Do NOT wrap in a root object.
     - Do NOT output any commentary, markdown, code fences, or extra text.
     - Do NOT include newline characters inside strings.

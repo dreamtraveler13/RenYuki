@@ -143,6 +143,16 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const [visitStack, setVisitStack] = useState<Array<{ nodeId: string; affinity: number }>>(() => [
     { nodeId: initialNodeId || script.startNodeId, affinity: initialAffinity || 50 },
   ]);
+  const [affinityEffects, setAffinityEffects] = useState<Array<{ id: number; delta: number }>>([]);
+
+  const triggerAffinityEffect = (delta: number) => {
+    if (delta === 0) return;
+    const id = Date.now() + Math.random();
+    setAffinityEffects((prev) => [...prev, { id, delta }]);
+    setTimeout(() => {
+      setAffinityEffects((prev) => prev.filter((e) => e.id !== id));
+    }, 2000);
+  };
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const bgmSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -182,6 +192,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
 
   const currentNode: StoryNode | undefined = runtimeScript.nodes[currentNodeId];
   const isUserChoiceNode = !!currentNode && currentNode.nodeType === 'user_choice';
+  const isMaxMode = runtimeScript.maxMode === true;
   const hasProtagonist = useMemo(() => {
     const imgs = assets?.protagonist;
     if (!imgs) return false;
@@ -461,7 +472,10 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   };
 
   const handleChoice = (choice: Choice) => {
-    setAffinity(prev => Math.min(100, Math.max(0, prev + choice.affinityScore)));
+    const rawDelta = Number.isFinite(choice.affinityScore) ? choice.affinityScore : 0;
+    const delta = isMaxMode && rawDelta > 0 ? Math.max(0, Math.round(rawDelta * 0.6)) : rawDelta;
+    triggerAffinityEffect(delta);
+    setAffinity((prev) => Math.min(100, Math.max(0, prev + delta)));
     setCurrentNodeId(choice.nextNodeId);
   };
 
@@ -710,9 +724,11 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
           if (msg.type === 'affinity' && !appliedAffinity) {
             const delta = typeof msg.delta === 'number' ? msg.delta : Number(msg.delta);
             const deltaValue = Number.isFinite(delta) ? delta : 0;
+            const effectiveDelta = isMaxMode && deltaValue > 0 ? Math.max(0, Math.round(deltaValue * 0.6)) : deltaValue;
             appliedAffinity = true;
-            patchChoiceAffinity(deltaValue);
-            setAffinity((prev) => Math.min(100, Math.max(0, prev + deltaValue)));
+            patchChoiceAffinity(effectiveDelta);
+            triggerAffinityEffect(effectiveDelta);
+            setAffinity((prev) => Math.min(100, Math.max(0, prev + effectiveDelta)));
             continue;
           }
           if (msg.type === 'done') {
@@ -932,12 +948,33 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
       <div className={`absolute top-0 left-0 z-50 p-2 ${d('lg:p-6')}`}>
          <div className={`bg-white/90 backdrop-blur-md border border-black p-1 ${d('lg:p-3')} flex items-center gap-2 ${d('lg:gap-4')} shadow-md transition-all hover:scale-105 origin-top-left scale-90 ${d('lg:scale-100')}`}>
             <div className="flex flex-col">
-               <span className={`text-[8px] ${d('lg:text-[10px]')} font-mono-tech text-gray-500 uppercase`}>同步率</span>
+               <span className={`text-[8px] ${d('lg:text-[10px]')} font-mono-tech text-gray-500 uppercase`}>好感度</span>
                <span className={`text-sm ${d('lg:text-2xl')} font-black`}>{affinity}%</span>
             </div>
             <div className={`w-16 ${d('lg:w-32')} h-1 ${d('lg:h-2')} bg-gray-200 overflow-hidden`}>
                <div className="h-full bg-black transition-all duration-1000 ease-out" style={{ width: `${affinity}%` }}></div>
             </div>
+         </div>
+         {/* Affinity Floating Effects */}
+         <div className="absolute top-full left-4 w-full h-0 visible pointer-events-none">
+            {affinityEffects.map((effect) => (
+              <div
+                key={effect.id}
+                className="absolute left-0 top-2 flex items-center gap-1 animate-affinity-pop whitespace-nowrap"
+              >
+                {effect.delta > 0 ? (
+                  <>
+                    <span className="text-2xl lg:text-4xl text-red-500 drop-shadow-md filter shadow-white">❤️</span>
+                    <span className="text-2xl lg:text-4xl font-black text-red-500 drop-shadow-sm font-mono-tech shadow-white">+{effect.delta}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-2xl lg:text-4xl text-blue-500 drop-shadow-md filter shadow-white">💔</span>
+                    <span className="text-2xl lg:text-4xl font-black text-blue-500 drop-shadow-sm font-mono-tech shadow-white">{effect.delta}</span>
+                  </>
+                )}
+              </div>
+            ))}
          </div>
       </div>
 

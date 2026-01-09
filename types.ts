@@ -42,6 +42,7 @@ export interface StoryNode {
 export interface GameScript {
   title: string;
   heroineName: string;
+  maxMode?: boolean;
   startNodeId: string;
   nodes: Record<string, StoryNode>; // Dictionary of nodes
 }

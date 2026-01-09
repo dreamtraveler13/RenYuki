@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     );
     const titleFromUser =
       typeof plotDescription === 'string' && plotDescription.trim().length > 0 ? plotDescription.trim() : result.title;
-    const responsePayload = { ...result, title: titleFromUser };
+    const responsePayload = { ...result, title: titleFromUser, maxMode: isMax };
     return NextResponse.json(debug ? { ...responsePayload, debug } : responsePayload);
   } catch (err: any) {
     console.error('generate-script failed', err);
