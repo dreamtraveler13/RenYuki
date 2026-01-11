@@ -10,8 +10,8 @@ const PACKS: Array<{
   subtitle: string;
   priceLabel: string;
 }> = [
-  { id: 'coin_2', title: '嘎拉币 × 2', subtitle: '¥10 / 2 枚', priceLabel: '¥10' },
-  { id: 'coin_5', title: '嘎拉币 × 5', subtitle: '¥20 / 5 枚', priceLabel: '¥20' },
+  { id: 'coin_2', title: '支持并获赠 2 嘎拉币', subtitle: '¥10 / 支持作者', priceLabel: '¥10' },
+  { id: 'coin_5', title: '支持并获赠 5 嘎拉币', subtitle: '¥20 / 获赠更多', priceLabel: '¥20' },
 ];
 
 const PENDING_ORDER_KEY = 'renyuki_pending_order';
@@ -105,9 +105,9 @@ const BuyCoinsModal: React.FC<Props> = ({ open, coins, onClose, onCoinsUpdated }
         
                   <div>
         
-                    <div className="text-lg font-black uppercase tracking-tight">商店 // 嘎拉币</div>
+                    <div className="text-lg font-black uppercase tracking-tight">支持作者</div>
         
-                    <div className="text-xs font-mono-tech text-gray-500 mt-0.5">当前余额: {coins}</div>
+                    <div className="text-xs font-mono-tech text-gray-500 mt-0.5">剩余点数: {coins}</div>
         
                   </div>
         

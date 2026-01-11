@@ -52,6 +52,14 @@ const decodeUrlAudio = async (url: string, audioContext: AudioContext): Promise<
   return await audioContext.decodeAudioData(buf);
 };
 
+const toImageDataUrl = (base64: string) => {
+  const b64 = (base64 || '').trim();
+  if (!b64) return '';
+  const mime =
+    b64.startsWith('/9j/') ? 'image/jpeg' : b64.startsWith('iVBORw0KGgo') ? 'image/png' : b64.startsWith('R0lGOD') ? 'image/gif' : 'image/png';
+  return `data:${mime};base64,${b64}`;
+};
+
 const CrossfadeImage = ({ src, alt, className, style }: { src: string, alt: string, className: string, style?: React.CSSProperties }) => {
   const [prevSrc, setPrevSrc] = useState<string | null>(null);
   const [currentSrc, setCurrentSrc] = useState(src);
@@ -839,7 +847,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
           <div className="relative w-full h-full flex flex-col items-center justify-center bg-gray-100 z-50">
                <div className="absolute inset-0 opacity-10 filter grayscale contrast-150">
                  {Object.values(assets.backgrounds)[0] && (
-                     <img src={`data:image/png;base64,${Object.values(assets.backgrounds)[0]}`} className="w-full h-full object-cover" alt="" />
+                     <img src={toImageDataUrl(Object.values(assets.backgrounds)[0])} className="w-full h-full object-cover" alt="" />
                  )}
                </div>
                <div className={`z-10 text-center space-y-4 ${d('lg:space-y-6')}`}>
@@ -874,7 +882,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
          <div className="absolute inset-0 opacity-25">
            {(currentBackground || Object.values(assets.backgrounds)[0]) && (
              <img
-               src={`data:image/png;base64,${currentBackground || Object.values(assets.backgrounds)[0]}`}
+               src={toImageDataUrl(currentBackground || Object.values(assets.backgrounds)[0])}
                className="w-full h-full object-cover"
                alt="背景"
              />
@@ -939,7 +947,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
         {currentBackground && (
           <div key={currentBackground} className="absolute inset-0 w-full h-full animate-fade-in">
              <img 
-               src={`data:image/png;base64,${currentBackground}`} 
+               src={toImageDataUrl(currentBackground)} 
                className="w-full h-full object-cover filter brightness-[0.85] contrast-110 animate-ken-burns origin-center" 
                alt="背景" 
              />

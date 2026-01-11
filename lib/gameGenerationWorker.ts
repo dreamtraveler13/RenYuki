@@ -62,14 +62,43 @@ const sanitizeScenes = (scenes: Array<{ name: string; prompt: string }>) => {
 };
 
 const DEFAULT_CAMPUS_KEY = '校园';
-const DEFAULT_CAMPUS_PUBLIC_PATH = path.join(process.cwd(), 'public', 'backgrounds', 'campus-default.png');
+const STANDARD1_BACKGROUNDS_DIR = path.join(process.cwd(), 'public', 'backgrounds');
 
-let cachedDefaultCampusBase64: string | null = null;
-const getDefaultCampusBase64 = async (): Promise<string> => {
-  if (cachedDefaultCampusBase64) return cachedDefaultCampusBase64;
-  const buf = await fs.readFile(DEFAULT_CAMPUS_PUBLIC_PATH);
-  cachedDefaultCampusBase64 = buf.toString('base64');
-  return cachedDefaultCampusBase64;
+let cachedStandard1BackgroundFiles: string[] | null = null;
+const cachedStandard1BackgroundBase64: Record<string, string> = {};
+
+const listStandard1BackgroundFiles = async (): Promise<string[]> => {
+  if (cachedStandard1BackgroundFiles) return cachedStandard1BackgroundFiles;
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(STANDARD1_BACKGROUNDS_DIR);
+  } catch {
+    entries = [];
+  }
+
+  const files = entries
+    .filter((name) => {
+      const ext = path.extname(name).toLowerCase();
+      return ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.webp';
+    })
+    .map((name) => path.join(STANDARD1_BACKGROUNDS_DIR, name));
+
+  cachedStandard1BackgroundFiles = files;
+  return files;
+};
+
+const getRandomStandard1BackgroundBase64 = async (): Promise<string> => {
+  const files = await listStandard1BackgroundFiles();
+  if (!files.length) {
+    throw new Error('普通生成1缺少默认背景：请在 public/backgrounds 放入至少一张图片');
+  }
+  const idx = Math.floor(Math.random() * files.length);
+  const picked = files[idx];
+  if (cachedStandard1BackgroundBase64[picked]) return cachedStandard1BackgroundBase64[picked];
+  const buf = await fs.readFile(picked);
+  const b64 = buf.toString('base64');
+  cachedStandard1BackgroundBase64[picked] = b64;
+  return b64;
 };
 
 const generateProtagonistSet = async (input: StartGameGenerationInput) => {
@@ -238,8 +267,8 @@ const buildGamePayload = async (
 
   const backgroundsPromise = (async () => {
     if (isStandard1) {
-      await onUpdate({ progress: 40, message: '加载默认背景' });
-      const base64 = await getDefaultCampusBase64();
+      await onUpdate({ progress: 40, message: '加载默认背景（随机）' });
+      const base64 = await getRandomStandard1BackgroundBase64();
       await onUpdate({ progress: 75, message: '默认背景已就绪' });
       return { [DEFAULT_CAMPUS_KEY]: base64 };
     }

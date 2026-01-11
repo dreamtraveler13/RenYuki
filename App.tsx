@@ -905,7 +905,7 @@ const App: React.FC = () => {
                 onClick={() => setShowBuyCoins(true)}
                 className="rounded-xl bg-gray-900 text-white text-xs font-semibold px-3 py-2 hover:bg-black transition-colors"
               >
-                充值
+                支持作者
               </button>
               <button
                 onClick={handleLogout}

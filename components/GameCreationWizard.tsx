@@ -480,7 +480,7 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
       }
       const insufficientCoins = rawMessage.includes('INSUFFICIENT_COINS') || rawMessage.includes('嘎拉币不足');
       if (insufficientCoins) onNeedCoins?.();
-      const message = insufficientCoins ? '嘎拉币不足，请先购买' : rawMessage;
+      const message = insufficientCoins ? '嘎拉币不足，请先支持作者' : rawMessage;
       if (mountedRef.current) {
         setLoadingStatus('错误：' + message);
         setErrorMessage(message);
