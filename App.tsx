@@ -723,8 +723,10 @@ const App: React.FC = () => {
             id: pendingGenerationJobId,
             status: 'failed',
             message: status.message || '生成失败',
-            error: status.error || status.jobError,
-            createdAt: new Date().toISOString(),
+            error: status.jobError,
+            coinCost: 0,
+            createdAt: status.createdAt || new Date().toISOString(),
+            updatedAt: status.updatedAt || new Date().toISOString(),
             progress: 100,
           });
           try {

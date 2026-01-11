@@ -297,11 +297,12 @@ const buildGamePayload = async (
       },
     });
     const titleFromUser = plotDescription.length > 0 ? plotDescription : script.title;
+    const generationVariant: GameScript['generationVariant'] = isMax ? 'max' : isStandard1 ? 'standard1' : 'standard2';
     return {
       ...script,
       title: titleFromUser,
       maxMode: isMax,
-      generationVariant: isMax ? 'max' : isStandard1 ? 'standard1' : 'standard2',
+      generationVariant,
     };
   })();
 
