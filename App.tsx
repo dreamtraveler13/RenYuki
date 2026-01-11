@@ -476,7 +476,7 @@ const App: React.FC = () => {
         <div className="stagger-enter stagger-1 relative z-40">
           <h1 className="text-5xl font-black tracking-tighter leading-[0.8] mb-1">RenYuki</h1>
           <div className="flex items-center gap-3">
-             <span className="text-xs font-mono-tech text-gray-400 tracking-widest uppercase">两分钟一集的校园剧情小玩具</span>
+             <span className="text-xs font-mono-tech text-gray-400 tracking-widest uppercase">制作你的Galgame</span>
           </div>
         </div>
 
@@ -980,7 +980,7 @@ const App: React.FC = () => {
              <div className="col-span-5 h-full flex flex-col justify-center px-4 md:px-8 lg:px-20 relative bg-white border-r border-black z-20">
                 <div className="mb-8 lg:mb-20">
                     <h1 className="text-4xl md:text-5xl lg:text-8xl font-black tracking-tighter leading-[0.8]">RenYuki</h1>
-                    <h2 className="text-sm md:text-base lg:text-sm font-light uppercase tracking-[0.3em] mt-2 whitespace-nowrap text-gray-400">两分钟一集的校园剧情小玩具</h2>
+                    <h2 className="text-sm md:text-base lg:text-sm font-light uppercase tracking-[0.3em] mt-2 whitespace-nowrap text-gray-400">制作你的Galgame</h2>
                     <div className="w-8 md:w-16 lg:w-20 h-1 lg:h-2 bg-black mt-4 lg:mt-6"></div>
                 </div>
 

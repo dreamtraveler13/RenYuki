@@ -1490,7 +1490,7 @@ Same face, hairstyle, age, sex.Do not change any facial features of the characte
 
 Wearing a black Japanese male DK school uniform (Gakuran).
 
-Upper-body portrait, head to waist.
+Half-body portrait, head to knees (upper legs visible).
 Centered composition, eye-level view.
 
 Natural relaxed posture.
@@ -1505,14 +1505,13 @@ Same face, hairstyle, age, sex.Do not change any facial features of the characte
 
 Wearing a black Japanese female JK school uniform (Seifuku).
 
-Upper-body portrait, head to waist.
+Half-body portrait, head to knees (upper legs visible).
 Centered composition, eye-level view.
 
 Natural relaxed posture.
 Simple pose suitable for dialogue scene.
 
 Gentle feminine posture and expression.
-Natural and restrained, not exaggerated.
 
 Pure white background (#FFFFFF).
 `;
@@ -1538,7 +1537,7 @@ const buildSpritePrompt = (basePrompt: string, map: Record<string, string>, emot
   const normalized = normalizeEmotionKey(emotionRaw);
   const expressionPrompt =
     map[normalized] ||
-    `EXPRESSION: ${emotionRaw || 'calm neutral'}. Keep it subtle, natural, and not exaggerated.`;
+    `EXPRESSION: ${emotionRaw || 'calm neutral'}. Keep it subtle and natural.`;
   return `${basePrompt}\n${expressionPrompt}`.trim();
 };
 
@@ -1547,7 +1546,7 @@ const buildSpriteSequencePrompt = (basePrompt: string, map: Record<string, strin
     const normalized = normalizeEmotionKey(emotion);
     const expressionPrompt =
       map[normalized] ||
-      `EXPRESSION: ${emotion || 'calm neutral'}. Keep it subtle, natural, and not exaggerated.`;
+      `EXPRESSION: ${emotion || 'calm neutral'}. Keep it subtle and natural.`;
     return `${index + 1}. ${expressionPrompt}`;
   });
 
