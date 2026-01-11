@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Button from './Button';
-import { fileToBase64, startGameGeneration } from '../services/aiService';
+import { fileToBase64, startGameGenerationWithProgress, type TransferProgress } from '../services/aiService';
 import { policyAccept, policyStatus, walletBalance } from '../services/accountService';
 
 interface Props {
@@ -305,6 +305,7 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
   const mountedRef = useRef(true);
   const [step, setStep] = useState<'upload' | 'generating'>('upload');
   const [loadingStatus, setLoadingStatus] = useState('');
+  const [uploadProgress, setUploadProgress] = useState<TransferProgress | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   
   const [userName, setUserName] = useState('');
@@ -440,20 +441,33 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
       setErrorMessage('');
       setStep('generating');
       setLoadingStatus('正在创建生成任务…');
+      setUploadProgress({ loaded: 0, total: null, percent: 0 });
     }
 
     try {
       const targetHeroine = heroineName.trim() || 'Unit-01';
-      const { jobId } = await startGameGeneration({
-        protagonistName: maxMode ? userName.trim() : '',
-        heroineName: targetHeroine,
-        plotDescription,
-        maxMode,
-        protagonistPhotoBase64: maxMode ? protagonistPhoto : undefined,
-        protagonistMimeType,
-        heroinePhotoBase64: heroinePhoto,
-        heroineMimeType,
-      });
+      const { jobId } = await startGameGenerationWithProgress(
+        {
+          protagonistName: maxMode ? userName.trim() : '',
+          heroineName: targetHeroine,
+          plotDescription,
+          maxMode,
+          protagonistPhotoBase64: maxMode ? protagonistPhoto : undefined,
+          protagonistMimeType,
+          heroinePhotoBase64: heroinePhoto,
+          heroineMimeType,
+        },
+        (p) => {
+          if (!mountedRef.current) return;
+          setUploadProgress(p);
+          if (typeof p.percent === 'number') {
+            setLoadingStatus(`正在上传素材…${p.percent}%`);
+          } else {
+            setLoadingStatus('正在上传素材…');
+          }
+        }
+      );
+      if (mountedRef.current) setUploadProgress(null);
 
       try {
         const coins = await walletBalance();
@@ -484,6 +498,7 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
       if (mountedRef.current) {
         setLoadingStatus('错误：' + message);
         setErrorMessage(message);
+        setUploadProgress(null);
         setStep('upload');
       }
     }
@@ -724,6 +739,20 @@ const GameCreationWizard: React.FC<Props> = ({ onCoinsUpdated, onNeedCoins, onGe
               <div className="mt-2 text-xs text-center text-gray-500 font-mono-tech">
                 预计需要几分钟，请保持页面打开
               </div>
+              {uploadProgress && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-[10px] font-mono-tech text-gray-500">
+                    <div>上传进度</div>
+                    <div>{typeof uploadProgress.percent === 'number' ? `${uploadProgress.percent}%` : '-'}</div>
+                  </div>
+                  <div className="mt-2 h-1 w-full bg-black/5 overflow-hidden rounded-full">
+                    <div
+                      className="h-full bg-black/70 transition-all"
+                      style={{ width: `${Math.max(0, Math.min(100, uploadProgress.percent ?? 0))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               <div className="mt-5 h-1 w-full bg-black/5 overflow-hidden rounded-full">
                 <div className="h-full w-1/2 bg-black/70 animate-pulse" />
               </div>

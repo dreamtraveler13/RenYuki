@@ -73,6 +73,69 @@ const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return data as T;
 };
 
+export type TransferProgress = { loaded: number; total: number | null; percent: number | null };
+
+const requestJsonXhr = async <T,>(params: {
+  method: 'GET' | 'POST';
+  path: string;
+  body?: any;
+  onUploadProgress?: (p: TransferProgress) => void;
+  onDownloadProgress?: (p: TransferProgress) => void;
+}): Promise<T> => {
+  return await new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(params.method, withBase(params.path), true);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Content-Type', 'application/json');
+
+    if (params.onDownloadProgress) {
+      xhr.onprogress = (e) => {
+        const total = e.lengthComputable ? e.total : null;
+        const percent = e.lengthComputable && e.total > 0 ? Math.round((e.loaded / e.total) * 100) : null;
+        params.onDownloadProgress?.({ loaded: e.loaded, total, percent });
+      };
+    }
+
+    if (xhr.upload && params.onUploadProgress) {
+      xhr.upload.onprogress = (e) => {
+        const total = e.lengthComputable ? e.total : null;
+        const percent = e.lengthComputable && e.total > 0 ? Math.round((e.loaded / e.total) * 100) : null;
+        params.onUploadProgress?.({ loaded: e.loaded, total, percent });
+      };
+    }
+
+    xhr.onerror = () => reject(new Error('网络错误'));
+    xhr.ontimeout = () => reject(new Error('请求超时'));
+    xhr.onload = () => {
+      const status = xhr.status;
+      const text = xhr.responseText || '';
+      let data: any = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = null;
+      }
+      const errorMessage =
+        (data && typeof data === 'object' && typeof (data as any).error === 'string' && (data as any).error) ||
+        (text && text.trim().length > 0 ? text.trim() : null) ||
+        `Request failed: ${status}`;
+
+      if (status < 200 || status >= 300 || (data && typeof data === 'object' && (data as any).error)) {
+        reject(new Error(errorMessage));
+        return;
+      }
+      resolve(data as T);
+    };
+
+    try {
+      const payload = params.method === 'POST' ? JSON.stringify(params.body ?? {}) : null;
+      xhr.send(payload);
+    } catch (e: any) {
+      reject(new Error(e?.message || '请求失败'));
+    }
+  });
+};
+
 const blobToBase64 = (blob: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -236,6 +299,20 @@ export const startGameGeneration = async (input: GameGenerationInput): Promise<{
   });
 };
 
+export const startGameGenerationWithProgress = async (
+  input: GameGenerationInput,
+  onUploadProgress: (p: TransferProgress) => void
+): Promise<{ jobId: string }> => {
+  return await withRetry('generate-game-upload', async () => {
+    return await requestJsonXhr<{ jobId: string }>({
+      method: 'POST',
+      path: '/api/generate-game',
+      body: input,
+      onUploadProgress,
+    });
+  });
+};
+
 export const getGameGenerationJob = async (
   jobId: string,
   opts?: { includeResult?: boolean; includeDebug?: boolean }
@@ -245,6 +322,23 @@ export const getGameGenerationJob = async (
   if (opts?.includeDebug) params.set('includeDebug', '1');
   return await withRetry('generate-game-status', async () => {
     return await requestJson<GameGenerationJobStatus>(`/api/generate-game?${params.toString()}`);
+  });
+};
+
+export const getGameGenerationJobWithProgress = async (
+  jobId: string,
+  opts: { includeResult?: boolean; includeDebug?: boolean },
+  onDownloadProgress: (p: TransferProgress) => void
+): Promise<GameGenerationJobStatus> => {
+  const params = new URLSearchParams({ jobId });
+  if (opts?.includeResult) params.set('includeResult', '1');
+  if (opts?.includeDebug) params.set('includeDebug', '1');
+  return await withRetry('generate-game-status-download', async () => {
+    return await requestJsonXhr<GameGenerationJobStatus>({
+      method: 'GET',
+      path: `/api/generate-game?${params.toString()}`,
+      onDownloadProgress,
+    });
   });
 };
 

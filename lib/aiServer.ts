@@ -983,9 +983,11 @@ export const generateScript = async (
     - emotion: MUST be chosen from the available expressions for the current speaker (see Sprite Emotion Availability).
 
     EMOTION CONSISTENCY (IMPORTANT):
-    - Emotion selects the sprite. Minimize the switching of emotions.
-    - Keep the same emotion for several consecutive nodes unless the mood clearly changes.
-    - Default to "normal"; use other emotions only for key beats.
+    - Emotion selects the sprite. Do NOT switch emotions frequently.
+    - Treat emotion as a "segment-level" choice: keep the same emotion for a whole beat/paragraph of dialogue.
+    - For each speaker, keep the same emotion for at least 2–4 consecutive nodes; only change when there is a clear emotional turn.
+    - In back-and-forth conversation, avoid changing the heroine emotion every line; keep it stable across multiple exchanges.
+    - Default to "normal"; use other emotions only for key beats (confession, embarrassment spike, surprise reveal, etc.).
   `;
 
   const scriptJsonSchema = {
@@ -1178,8 +1180,10 @@ export async function* continueStoryStream(params: {
 
     EMOTION CONSISTENCY (IMPORTANT):
     - Emotion selects the sprite. Do NOT switch emotions frequently.
-    - Keep the same emotion for several consecutive nodes unless the mood clearly changes.
-    - Default to "normal"; use other emotions only for key beats.
+    - Treat emotion as a "segment-level" choice: keep the same emotion for a whole beat/paragraph of dialogue.
+    - For each speaker, keep the same emotion for at least 2–4 consecutive nodes; only change when there is a clear emotional turn.
+    - In back-and-forth conversation, avoid changing the heroine emotion every line; keep it stable across multiple exchanges.
+    - Default to "normal"; use other emotions only for key beats (confession, embarrassment spike, surprise reveal, etc.).
 
     CONTEXT (recent dialogue):
     ${historyText}

@@ -22,7 +22,7 @@ import SupportModal from './components/SupportModal';
 import { deleteSaveServer } from './services/saveService';
 import { authLogout, authMe } from './services/accountService';
 import { publishPlazaGame } from './services/plazaService';
-import { getGameGenerationJob } from './services/aiService';
+import { getGameGenerationJob, getGameGenerationJobWithProgress, type TransferProgress } from './services/aiService';
 import { stripAssetBase64Map, warmUpBackgroundRemoval } from './services/imageCutout';
 import { listGenerationJobs, retryGenerationJob, type GenerationJobSummary } from './services/generationJobService';
 import { deleteSave, getSaveList, saveGame } from './services/storageService';
@@ -159,6 +159,7 @@ const App: React.FC = () => {
   const [pendingGenerationError, setPendingGenerationError] = useState<string | null>(null);
   const [clientPostProcessing, setClientPostProcessing] = useState(false);
   const [postProcessProgress, setPostProcessProgress] = useState<{ done: number; total: number } | null>(null);
+  const [resultDownloadProgress, setResultDownloadProgress] = useState<TransferProgress | null>(null);
   const [lastFailedJob, setLastFailedJob] = useState<GenerationJobSummary | null>(null);
   const pollInFlightRef = useRef(false);
   const modnetWarmupRef = useRef(false);
@@ -735,6 +736,7 @@ const App: React.FC = () => {
           setPendingGenerationJobId(null);
           setClientPostProcessing(false);
           setPostProcessProgress(null);
+          setResultDownloadProgress(null);
           try {
             await refreshMemory();
           } catch {}
@@ -742,7 +744,16 @@ const App: React.FC = () => {
         }
 
         if (status.state === 'completed') {
-          const full = await getGameGenerationJob(pendingGenerationJobId, { includeResult: true, includeDebug: true });
+          setResultDownloadProgress({ loaded: 0, total: null, percent: 0 });
+          const full = await getGameGenerationJobWithProgress(
+            pendingGenerationJobId,
+            { includeResult: true, includeDebug: true },
+            (p) => {
+              if (cancelled) return;
+              setResultDownloadProgress(p);
+            }
+          );
+          setResultDownloadProgress(null);
           if (cancelled) return;
           const result = full.result;
           if (!result) {
@@ -1095,6 +1106,29 @@ const App: React.FC = () => {
                                  style={{
                                    width: `${Math.round((postProcessProgress.done / Math.max(1, postProcessProgress.total)) * 100)}%`,
                                  }}
+                               />
+                             </div>
+                           </div>
+                         )}
+                         {resultDownloadProgress && (
+                           <div className="bg-white border border-black/10 rounded-2xl shadow-sm p-4 lg:p-6">
+                             <div className="flex items-start justify-between gap-4">
+                               <div className="min-w-0">
+                                 <div className="text-xs font-mono-tech text-gray-500">下载生成结果</div>
+                                 <div className="text-sm lg:text-base font-semibold text-gray-900 mt-1">
+                                   {typeof resultDownloadProgress.percent === 'number'
+                                     ? `正在下载…${resultDownloadProgress.percent}%`
+                                     : `正在下载…（${Math.round(resultDownloadProgress.loaded / 1024)} KB）`}
+                                 </div>
+                               </div>
+                               <div className="text-xs font-mono-tech text-gray-600">
+                                 {typeof resultDownloadProgress.percent === 'number' ? `${resultDownloadProgress.percent}%` : '--'}
+                               </div>
+                             </div>
+                             <div className="mt-3 h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                               <div
+                                 className="h-full bg-black transition-all"
+                                 style={{ width: `${Math.max(0, Math.min(100, resultDownloadProgress.percent ?? 0))}%` }}
                                />
                              </div>
                            </div>
