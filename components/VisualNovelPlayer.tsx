@@ -484,7 +484,8 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
 
   const handleChoice = (choice: Choice) => {
     const rawDelta = Number.isFinite(choice.affinityScore) ? choice.affinityScore : 0;
-    const delta = isMaxMode && rawDelta > 0 ? Math.max(0, Math.round(rawDelta * 0.6)) : rawDelta;
+    const multiplier = isMaxMode ? 1 : 3;
+    const delta = rawDelta * multiplier;
     triggerAffinityEffect(delta);
     setAffinity((prev) => Math.min(100, Math.max(0, prev + delta)));
     setCurrentNodeId(choice.nextNodeId);
@@ -735,7 +736,8 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
           if (msg.type === 'affinity' && !appliedAffinity) {
             const delta = typeof msg.delta === 'number' ? msg.delta : Number(msg.delta);
             const deltaValue = Number.isFinite(delta) ? delta : 0;
-            const effectiveDelta = isMaxMode && deltaValue > 0 ? Math.max(0, Math.round(deltaValue * 0.6)) : deltaValue;
+            const multiplier = isMaxMode ? 1 : 3;
+            const effectiveDelta = deltaValue * multiplier;
             appliedAffinity = true;
             patchChoiceAffinity(effectiveDelta);
             triggerAffinityEffect(effectiveDelta);
