@@ -201,6 +201,7 @@ export const creditOrderIfNeeded = async (outTradeNo: string): Promise<{ order: 
       `
         UPDATE users
         SET coins = coins + $2,
+            first_purchase_at = COALESCE(first_purchase_at, $3),
             updated_at = $3
         WHERE id = $1
         RETURNING coins
@@ -246,6 +247,44 @@ export const creditOrderIfNeeded = async (outTradeNo: string): Promise<{ order: 
     throw err;
   } finally {
     client.release();
+  }
+};
+
+export const hasUserPurchasedCoins = async (userId: string): Promise<boolean> => {
+  const db = await getDb();
+  try {
+    const { rows } = await db.query(
+      `
+        SELECT 1
+        FROM users
+        WHERE id = $1
+          AND first_purchase_at IS NOT NULL
+        LIMIT 1
+      `,
+      [userId]
+    );
+    return !!rows[0];
+  } catch (err: any) {
+    // Backward compatibility for old schemas.
+    const msg = String(err?.message || '');
+    if (/first_purchase_at/i.test(msg)) {
+      try {
+        const fallback = await db.query(
+          `
+            SELECT 1
+            FROM orders
+            WHERE user_id = $1
+              AND status = 'credited'
+            LIMIT 1
+          `,
+          [userId]
+        );
+        return !!fallback.rows?.[0];
+      } catch {
+        return false;
+      }
+    }
+    return false;
   }
 };
 

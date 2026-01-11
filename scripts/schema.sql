@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_salt text NOT NULL,
   password_hash text NOT NULL,
   coins integer NOT NULL DEFAULT 0,
+  first_purchase_at timestamptz,
   policy_strikes integer NOT NULL DEFAULT 0,
   banned_at timestamptz,
   ban_reason text,

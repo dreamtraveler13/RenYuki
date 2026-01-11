@@ -43,6 +43,7 @@ export interface GameScript {
   title: string;
   heroineName: string;
   maxMode?: boolean;
+  generationVariant?: 'standard1' | 'standard2' | 'max';
   startNodeId: string;
   nodes: Record<string, StoryNode>; // Dictionary of nodes
 }
@@ -65,6 +66,7 @@ export interface AccountUser {
   username: string;
   displayName: string;
   coins: number;
+  firstPurchaseAt?: string;
   bannedAt?: string;
   policyAcceptedAt?: string;
   policyVersion?: number;

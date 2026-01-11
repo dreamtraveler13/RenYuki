@@ -9,6 +9,7 @@ type UserRecord = {
   passwordSalt: string;
   passwordHash: string;
   coins: number;
+  firstPurchaseAt?: string;
   policyStrikes?: number;
   bannedAt?: string;
   banReason?: string;
@@ -25,6 +26,7 @@ export type PublicUser = {
   username: string;
   displayName: string;
   coins: number;
+  firstPurchaseAt?: string;
   bannedAt?: string;
   policyAcceptedAt?: string;
   policyVersion?: number;
@@ -59,6 +61,7 @@ const toPublicUser = (u: UserRecord): PublicUser => ({
   username: u.username,
   displayName: u.displayName,
   coins: u.coins,
+  firstPurchaseAt: u.firstPurchaseAt,
   bannedAt: u.bannedAt,
   policyAcceptedAt: u.policyAcceptedAt,
   policyVersion: u.policyVersion,
@@ -72,6 +75,7 @@ const rowToUserRecord = (row: any): UserRecord => ({
   passwordSalt: String(row.password_salt),
   passwordHash: String(row.password_hash),
   coins: Number(row.coins) || 0,
+  firstPurchaseAt: row.first_purchase_at ? new Date(row.first_purchase_at).toISOString() : undefined,
   policyStrikes: row.policy_strikes === null || row.policy_strikes === undefined ? undefined : Number(row.policy_strikes),
   bannedAt: row.banned_at ? String(row.banned_at) : undefined,
   banReason: row.ban_reason ? String(row.ban_reason) : undefined,
@@ -142,6 +146,7 @@ export const createUser = async (params: {
     passwordSalt: salt,
     passwordHash: hash,
     coins: 1,
+    firstPurchaseAt: undefined,
     createdAt: now,
     updatedAt: now,
   });

@@ -193,6 +193,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const currentNode: StoryNode | undefined = runtimeScript.nodes[currentNodeId];
   const isUserChoiceNode = !!currentNode && currentNode.nodeType === 'user_choice';
   const isMaxMode = runtimeScript.maxMode === true;
+  const ttsEnabled = runtimeScript.generationVariant !== 'standard1';
   const hasProtagonist = useMemo(() => {
     const imgs = assets?.protagonist;
     if (!imgs) return false;
@@ -219,6 +220,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   );
 
   const ensureVoiceForNodes = useCallback(async (nodes: StoryNode[]) => {
+    if (!ttsEnabled) return;
     for (const node of nodes) {
       const text = getHeroineVoiceText(node);
       if (!text) continue;
@@ -234,7 +236,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
         voiceFetchRef.current.delete(node.id);
       }
     }
-  }, []);
+  }, [ttsEnabled]);
 
   // Helper function: If isTouchDevice is true, suppress the desktop (lg:) classes
   // This forces the UI to stay compact even on high-res tablets or phones
@@ -261,6 +263,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   }, [currentNode, collectUpcomingHeroineNodes, ensureVoiceForNodes]);
 
   useEffect(() => {
+    if (!ttsEnabled) return;
     if (!currentNode || currentNode.speaker !== SpeakerType.HEROINE) return;
     const audioSrc = voiceCache[currentNode.id];
     if (!audioSrc) return;
@@ -282,7 +285,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
     audio.src = audioSrc;
     audio.play().catch(() => {});
     lastPlayedVoiceRef.current = { nodeId: currentNode.id, audioSrc };
-  }, [currentNode, voiceCache]);
+  }, [currentNode, ttsEnabled, voiceCache]);
 
   const fullscreenSupported =
     typeof document !== 'undefined' && typeof document.documentElement?.requestFullscreen === 'function';

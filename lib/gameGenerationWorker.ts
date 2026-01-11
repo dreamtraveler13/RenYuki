@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 import { GeneratedAssets, GameScript, SpeakerType, StoryNode, UserProfile } from '@/types';
 import { createJob, updateJob } from '@/lib/gameGenerationCache';
 import { enqueueGenerationJob } from '@/lib/generationQueue';
@@ -19,6 +21,7 @@ export interface StartGameGenerationInput {
   heroineName?: string;
   plotDescription: string;
   maxMode?: boolean | 0 | 1 | '0' | '1';
+  standardVariant?: 1 | 2;
   protagonistPhotoBase64?: string;
   protagonistMimeType?: string;
   heroinePhotoBase64?: string;
@@ -58,6 +61,17 @@ const sanitizeScenes = (scenes: Array<{ name: string; prompt: string }>) => {
   });
 };
 
+const DEFAULT_CAMPUS_KEY = '校园';
+const DEFAULT_CAMPUS_PUBLIC_PATH = path.join(process.cwd(), 'public', 'backgrounds', 'campus-default.png');
+
+let cachedDefaultCampusBase64: string | null = null;
+const getDefaultCampusBase64 = async (): Promise<string> => {
+  if (cachedDefaultCampusBase64) return cachedDefaultCampusBase64;
+  const buf = await fs.readFile(DEFAULT_CAMPUS_PUBLIC_PATH);
+  cachedDefaultCampusBase64 = buf.toString('base64');
+  return cachedDefaultCampusBase64;
+};
+
 const generateProtagonistSet = async (input: StartGameGenerationInput) => {
   const mimeType = input.protagonistMimeType || 'image/jpeg';
 
@@ -80,11 +94,14 @@ const generateProtagonistSet = async (input: StartGameGenerationInput) => {
   throw new Error('必须上传男主照片');
 };
 
-const generateHeroineSet = async (input: StartGameGenerationInput) => {
+const generateHeroineSet = async (input: StartGameGenerationInput, opts?: { standardVariant?: 1 | 2 }) => {
   const mimeType = input.heroineMimeType || 'image/jpeg';
 
   if (input.heroinePhotoBase64) {
-    const emotionSet: Array<keyof GeneratedAssets['heroine']> = ['normal', 'shy', 'happy', 'surprised'];
+    const isStandard1 = opts?.standardVariant === 1;
+    const emotionSet: Array<keyof GeneratedAssets['heroine']> = isStandard1
+      ? ['normal', 'happy', 'shy']
+      : ['normal', 'shy', 'happy', 'surprised'];
     const urls = await generateSpriteSet(emotionSet, input.heroinePhotoBase64, mimeType, true);
     const images = await Promise.all(urls.map(downloadToBase64));
     const out: any = {};
@@ -181,6 +198,8 @@ const buildGamePayload = async (
   onUpdate: (patch: { progress?: number; message?: string }) => Promise<void>
 ): Promise<GeneratedGamePayload> => {
   const isMax = input.maxMode === true || input.maxMode === 1 || input.maxMode === '1';
+  const standardVariant = isMax ? undefined : input.standardVariant === 1 ? 1 : 2;
+  const isStandard1 = !isMax && standardVariant === 1;
   const protagonistName = String(input.protagonistName || '').trim() || '我';
   const heroineName = String(input.heroineName || '').trim() || 'Unit-01';
   const plotDescription = String(input.plotDescription || '').trim();
@@ -190,6 +209,10 @@ const buildGamePayload = async (
   await onUpdate({ progress: 2, message: '正在准备生成任务' });
 
   const scenesPromise = (async () => {
+    if (isStandard1) {
+      await onUpdate({ progress: 8, message: '使用默认校园背景' });
+      return [{ name: DEFAULT_CAMPUS_KEY, prompt: DEFAULT_CAMPUS_KEY }];
+    }
     await onUpdate({ progress: 8, message: '正在推测场景' });
     const scenes = await inferBackgroundScenes(plotDescription);
     const cleaned = sanitizeScenes(scenes).slice(0, isMax ? 3 : 2);
@@ -208,12 +231,18 @@ const buildGamePayload = async (
 
   const heroinePromise = (async () => {
     await onUpdate({ progress: 20, message: `正在生成女主立绘（${heroineName}）` });
-    return await generateHeroineSet(input);
+    return await generateHeroineSet(input, { standardVariant });
   })();
 
   const scenes = await scenesPromise;
 
   const backgroundsPromise = (async () => {
+    if (isStandard1) {
+      await onUpdate({ progress: 40, message: '加载默认背景' });
+      const base64 = await getDefaultCampusBase64();
+      await onUpdate({ progress: 75, message: '默认背景已就绪' });
+      return { [DEFAULT_CAMPUS_KEY]: base64 };
+    }
     await onUpdate({ progress: 40, message: `正在生成背景（0/${scenes.length}）` });
     return await generateBackgrounds(scenes, async (done) => {
       const base = 40;
@@ -225,7 +254,7 @@ const buildGamePayload = async (
 
   const scriptPromise = (async () => {
     await onUpdate({ progress: 78, message: '正在生成剧本' });
-    const heroineEmotions: Array<StoryNode['emotion']> = ['normal', 'shy', 'happy', 'surprised'];
+    const heroineEmotions: Array<StoryNode['emotion']> = isStandard1 ? ['normal', 'happy', 'shy'] : ['normal', 'shy', 'happy', 'surprised'];
     const hasProtagonistSprite = isMax && !!input.protagonistPhotoBase64;
     const protagonistEmotions: Array<StoryNode['emotion']> = hasProtagonistSprite
       ? ['normal', 'happy', 'shy']
@@ -239,10 +268,19 @@ const buildGamePayload = async (
       },
     });
     const titleFromUser = plotDescription.length > 0 ? plotDescription : script.title;
-    return { ...script, title: titleFromUser, maxMode: isMax };
+    return {
+      ...script,
+      title: titleFromUser,
+      maxMode: isMax,
+      generationVariant: isMax ? 'max' : isStandard1 ? 'standard1' : 'standard2',
+    };
   })();
 
   const voicePromise = (async () => {
+    if (isStandard1) {
+      await onUpdate({ progress: 84, message: '普通生成1：跳过语音' });
+      return {};
+    }
     const script = await scriptPromise;
     return await generateHeroineVoiceMap(script, onUpdate);
   })();

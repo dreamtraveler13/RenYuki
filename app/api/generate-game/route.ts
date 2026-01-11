@@ -6,6 +6,7 @@ import { cleanupExpiredJobsForUser, readJob } from '@/lib/gameGenerationCache';
 import { createGenerationJobId, startGameGenerationJob, type StartGameGenerationInput } from '@/lib/gameGenerationWorker';
 import { getGenerationQueueStatus } from '@/lib/generationQueue';
 import { getGenerationJobRecord } from '@/lib/generationJobStore';
+import { hasUserPurchasedCoins } from '@/lib/orderStore';
 
 export const runtime = 'nodejs';
 
@@ -40,6 +41,13 @@ export async function POST(req: NextRequest) {
   if (!isMax && input?.protagonistPhotoBase64) {
     return NextResponse.json({ error: '非 MAX 模式不能生成男主' }, { status: 400 });
   }
+
+  const standardVariant = isMax ? undefined : (await hasUserPurchasedCoins(userId)) ? 2 : 1;
+  const normalizedInput: StartGameGenerationInput = {
+    ...input,
+    ...(standardVariant ? { standardVariant } : {}),
+  };
+
   const cost = isMax ? 2 : 1;
   try {
     await consumeUserCoins(userId, cost);
@@ -55,7 +63,7 @@ export async function POST(req: NextRequest) {
 
   const jobId = createGenerationJobId();
   await cleanupExpiredJobsForUser(userId);
-  const started = await startGameGenerationJob({ userId, jobId, input, coinCost: cost });
+  const started = await startGameGenerationJob({ userId, jobId, input: normalizedInput, coinCost: cost });
   if (!started.accepted) {
     try {
       await refundUserCoins(userId, cost);
