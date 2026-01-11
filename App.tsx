@@ -164,6 +164,8 @@ const App: React.FC = () => {
   const pollInFlightRef = useRef(false);
   const modnetWarmupRef = useRef(false);
   const coins = accountUser?.coins ?? 0;
+  const forceLandscapeOnMobile =
+    gameState === GameState.PLAYING && isTouchDevice && isPortrait && !showIosPrompt;
 
   const iosPromptOverlay = showIosPrompt ? (
     <div className="fixed inset-0 z-[30000] bg-black/80 text-white flex items-center justify-center p-6 overlay-fade-in">
@@ -931,26 +933,13 @@ const App: React.FC = () => {
         </div>
       )}
       
-      {/* GLOBAL: Landscape Enforcement Overlay */}
-      {/* Applied globally when logged in to ensure mobile matches desktop layout */}
-      {gameState === GameState.PLAYING && isTouchDevice && isPortrait && !showIosPrompt && (
-        <div className="fixed inset-0 z-[11000] bg-[#111] text-white flex flex-col items-center justify-center text-center p-6 overlay-fade-in">
-            <div className="text-6xl mb-6 animate-bounce font-mono-tech">↻</div>
-            <h2 className="text-2xl font-black uppercase tracking-widest mb-2">请旋转设备</h2>
-            <p className="text-gray-500 font-mono-tech text-xs uppercase">请切换到横屏</p>
-            <div className="mt-8 border border-white/20 px-4 py-2 text-[10px] text-gray-400">
-               SYSTEM_ERR: ORIENTATION_MISMATCH
-            </div>
-        </div>
-      )}
-
       {publishMessage && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[25000] bg-black text-white px-3 py-2 rounded-xl text-xs font-mono-tech toast-slide-in">
           {publishMessage}
         </div>
       )}
 
-      {gameState === GameState.PLAYING && (
+      {gameState === GameState.PLAYING && !forceLandscapeOnMobile && (
         <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto">
           <button
             onClick={toggleFullScreen}
@@ -1241,17 +1230,42 @@ const App: React.FC = () => {
         )}
 
         {gameState === GameState.PLAYING && currentScript && currentAssets && currentUser && (
-          <div className="absolute inset-0 z-50">
-             <VisualNovelPlayer 
-               script={currentScript}
-               assets={currentAssets}
-               userProfile={currentUser}
-               initialNodeId={initialNodeId}
-               initialAffinity={initialAffinity}
-               onExit={resetGame}
-               isTouchDevice={isTouchDevice}
-             />
-          </div>
+          forceLandscapeOnMobile ? (
+            <div className="absolute inset-0 z-50 bg-black">
+              <div
+                className="absolute top-0"
+                style={{
+                  left: 'calc(var(--app-vw, 1vw) * 100)',
+                  width: 'calc(var(--app-vh, 1vh) * 100)',
+                  height: 'calc(var(--app-vw, 1vw) * 100)',
+                  transformOrigin: 'top left',
+                  transform: 'rotate(90deg)',
+                }}
+              >
+                <VisualNovelPlayer
+                  script={currentScript}
+                  assets={currentAssets}
+                  userProfile={currentUser}
+                  initialNodeId={initialNodeId}
+                  initialAffinity={initialAffinity}
+                  onExit={resetGame}
+                  isTouchDevice={isTouchDevice}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="absolute inset-0 z-50">
+              <VisualNovelPlayer
+                script={currentScript}
+                assets={currentAssets}
+                userProfile={currentUser}
+                initialNodeId={initialNodeId}
+                initialAffinity={initialAffinity}
+                onExit={resetGame}
+                isTouchDevice={isTouchDevice}
+              />
+            </div>
+          )
         )}
 
       </div>

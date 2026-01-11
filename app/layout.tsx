@@ -19,6 +19,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="RenYuki" />
         <meta name="mobile-web-app-capable" content="yes" />
+        <Script id="viewport-vars" strategy="beforeInteractive">{`
+          (function () {
+            function setViewportVars() {
+              var vv = window.visualViewport;
+              var h = (vv && vv.height) ? vv.height : window.innerHeight;
+              var w = (vv && vv.width) ? vv.width : window.innerWidth;
+              if (h) document.documentElement.style.setProperty('--app-vh', (h * 0.01) + 'px');
+              if (w) document.documentElement.style.setProperty('--app-vw', (w * 0.01) + 'px');
+            }
+            setViewportVars();
+            window.addEventListener('resize', setViewportVars, { passive: true });
+            window.addEventListener('orientationchange', setViewportVars, { passive: true });
+            if (window.visualViewport) {
+              window.visualViewport.addEventListener('resize', setViewportVars, { passive: true });
+              window.visualViewport.addEventListener('scroll', setViewportVars, { passive: true });
+            }
+          })();
+        `}</Script>
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/icons/icon-192.png" />
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />

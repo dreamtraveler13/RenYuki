@@ -42,19 +42,11 @@ export default function SharedGamePage() {
       .catch((err: any) => setErrorMessage(err?.message || '加载失败'));
   }, [id]);
 
-  if (isTouchDevice && isPortrait) {
-    return (
-      <div className="fixed inset-0 z-[11000] bg-[#111] text-white flex flex-col items-center justify-center text-center p-6 overlay-fade-in">
-        <div className="text-6xl mb-6 animate-bounce font-mono-tech">↻</div>
-        <h2 className="text-2xl font-black uppercase tracking-widest mb-2">请旋转设备</h2>
-        <p className="text-gray-500 font-mono-tech text-xs uppercase">请切换到横屏以游玩分享的嘎拉</p>
-      </div>
-    );
-  }
+  const forceLandscapeOnMobile = isTouchDevice && isPortrait;
 
   if (errorMessage) {
     return (
-      <div className="w-screen h-screen bg-[#f7f7f8] flex items-center justify-center p-6">
+      <div className="w-screen h-screen h-[100dvh] h-[calc(var(--app-vh,1vh)*100)] bg-[#f7f7f8] flex items-center justify-center p-6">
         <div className="w-full max-w-md bg-white border border-black/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.10)] p-6">
           <div className="text-lg font-semibold text-gray-900">加载失败</div>
           <div className="mt-2 text-sm text-gray-600">{errorMessage}</div>
@@ -71,24 +63,48 @@ export default function SharedGamePage() {
 
   if (!game) {
     return (
-      <div className="w-screen h-screen bg-[#f7f7f8] flex items-center justify-center">
+      <div className="w-screen h-screen h-[100dvh] h-[calc(var(--app-vh,1vh)*100)] bg-[#f7f7f8] flex items-center justify-center">
         <div className="text-sm font-mono-tech text-gray-600">Loading…</div>
       </div>
     );
   }
 
   return (
-    <div className="w-screen h-screen">
-      <VisualNovelPlayer
-        script={game.save.script}
-        assets={game.save.assets}
-        userProfile={game.save.userProfile}
-        initialNodeId={game.save.currentNodeId}
-        initialAffinity={game.save.affinity}
-        onExit={() => router.push('/')}
-        isTouchDevice={isTouchDevice}
-        enableContinue={false}
-      />
+    <div className="w-screen h-screen h-[100dvh] h-[calc(var(--app-vh,1vh)*100)] bg-black">
+      {forceLandscapeOnMobile ? (
+        <div
+          className="absolute top-0"
+          style={{
+            left: 'calc(var(--app-vw, 1vw) * 100)',
+            width: 'calc(var(--app-vh, 1vh) * 100)',
+            height: 'calc(var(--app-vw, 1vw) * 100)',
+            transformOrigin: 'top left',
+            transform: 'rotate(90deg)',
+          }}
+        >
+          <VisualNovelPlayer
+            script={game.save.script}
+            assets={game.save.assets}
+            userProfile={game.save.userProfile}
+            initialNodeId={game.save.currentNodeId}
+            initialAffinity={game.save.affinity}
+            onExit={() => router.push('/')}
+            isTouchDevice={isTouchDevice}
+            enableContinue={false}
+          />
+        </div>
+      ) : (
+        <VisualNovelPlayer
+          script={game.save.script}
+          assets={game.save.assets}
+          userProfile={game.save.userProfile}
+          initialNodeId={game.save.currentNodeId}
+          initialAffinity={game.save.affinity}
+          onExit={() => router.push('/')}
+          isTouchDevice={isTouchDevice}
+          enableContinue={false}
+        />
+      )}
     </div>
   );
 }

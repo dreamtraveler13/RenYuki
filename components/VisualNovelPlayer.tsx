@@ -85,14 +85,14 @@ const CrossfadeImage = ({ src, alt, className, style }: { src: string, alt: stri
           key={prevSrc}
           src={prevSrc} 
           alt={alt} 
-          className="col-start-1 row-start-1 w-auto h-full object-contain animate-fade-out-overlap"
+          className="col-start-1 row-start-1 w-auto h-full object-contain object-bottom animate-fade-out-overlap"
         />
       )}
       <img 
         key={currentSrc}
         src={currentSrc} 
         alt={alt} 
-        className={`col-start-1 row-start-1 w-auto h-full object-contain ${prevSrc ? 'animate-fade-in-overlap' : ''}`}
+        className={`col-start-1 row-start-1 w-auto h-full object-contain object-bottom ${prevSrc ? 'animate-fade-in-overlap' : ''}`}
       />
       <style jsx>{`
         .animate-fade-in-overlap {
@@ -148,6 +148,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const voiceFetchRef = useRef<Set<string>>(new Set());
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastPlayedVoiceRef = useRef<{ nodeId: string; audioSrc: string } | null>(null);
+  
   const [visitStack, setVisitStack] = useState<Array<{ nodeId: string; affinity: number }>>(() => [
     { nodeId: initialNodeId || script.startNodeId, affinity: initialAffinity || 50 },
   ]);
@@ -410,7 +411,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
                     
                     // Stop later to allow fade out to finish
                     setTimeout(() => { 
-                        try { oldSource.stop(); oldSource.disconnect(); oldGain.disconnect(); } catch(e){} 
+                        try { oldSource.stop(); oldSource.disconnect(); oldGain.disconnect(); } catch(e){}
                     }, 2500);
                 } catch (e) { console.error(e); }
             }
@@ -913,7 +914,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   if (!currentNode) return null;
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-black select-none font-sans">
+    <div className="relative w-full h-full bg-black select-none font-sans flex flex-col">
       <CopyLinkModal
         open={!!publishLink}
         url={publishLink || ''}
@@ -944,7 +945,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
         </div>
       )}
       
-      {/* Background with Ken Burns & Crossfade */}
+      {/* Background with Ken Burns & Crossfade - sits behind everything */}
       <div className="absolute inset-0 z-0 overflow-hidden">
         {currentBackground && (
           <div key={currentBackground} className="absolute inset-0 w-full h-full animate-fade-in">
@@ -991,41 +992,77 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
          </div>
       </div>
 
-      {/* Sprites (Z-10) - BEHIND Dialogue Box */}
-      <div className={`absolute inset-0 z-10 flex items-end justify-center px-4 ${d('lg:px-20')} pb-0 pointer-events-none`}>
-         
-	         {/* Protagonist (Left) */}
-	         {hasProtagonist && (
-	           <div 
-	             className={`absolute left-[2%] bottom-0 transition-all duration-500 ease-out origin-bottom
-	             ${currentNode.speaker === SpeakerType.PROTAGONIST 
-	               ? 'z-10 scale-100 filter-none' 
-	               : 'z-0 scale-95 opacity-100'}`}
-	           >
-              <CrossfadeImage 
-                 src={`data:image/png;base64,${assets.protagonist[currentNode.emotion as keyof typeof assets.protagonist] || assets.protagonist.normal}`} 
-                 className={`h-[78vh] ${d('lg:h-[92vh]')} object-contain drop-shadow-2xl ${currentNode.speaker === SpeakerType.PROTAGONIST ? getSpriteAnimClass(currentNode.emotion) : ''}`}
-                 alt="主角"
-              />
+      {/* --- FLEX LAYOUT START --- */}
+      
+      {/* 1. Top/Main Area: Sprites (Flex Grow) */}
+      <div className={`relative flex-1 min-h-0 w-full z-10 pointer-events-none overflow-hidden flex items-end justify-center px-4 ${d('lg:px-20')}`}> 
+             
+             {/* Protagonist (Left) */}
+             {hasProtagonist && (
+               <div 
+                 className={`absolute left-[2%] bottom-0 transition-all duration-500 ease-out origin-bottom
+                 ${currentNode.speaker === SpeakerType.PROTAGONIST 
+                   ? 'z-10 scale-100 filter-none' 
+                   : 'z-0 scale-95 opacity-100'}`}
+               >
+                                    <CrossfadeImage 
+                                       src={`data:image/png;base64,${assets.protagonist[currentNode.emotion as keyof typeof assets.protagonist] || assets.protagonist.normal}`} 
+                                       className={`h-[78vh] ${d('lg:h-[92vh]')} max-h-[85%] object-contain object-bottom drop-shadow-2xl ${currentNode.speaker === SpeakerType.PROTAGONIST ? getSpriteAnimClass(currentNode.emotion) : ''}`}
+                                       alt="主角"
+                                    />               </div>
+             )}
+
+                          {/* Heroine (Right) */}
+                          <div 
+                            className={`absolute bottom-0 transition-all duration-500 ease-out origin-bottom
+                            ${hasProtagonist ? 'right-[2%]' : 'left-1/2 -translate-x-1/2'}
+                            ${heroineActive 
+                              ? 'z-10 scale-100 filter-none' 
+                              : 'z-0 scale-95 opacity-100'}`}
+                          >
+                             <CrossfadeImage 
+                                src={`data:image/png;base64,${assets.heroine[currentNode.emotion as keyof typeof assets.heroine] || assets.heroine.normal}`} 
+                                className={`h-[88vh] ${d('lg:h-[105vh]')} max-h-[95%] object-contain object-bottom drop-shadow-2xl ${heroineActive ? getSpriteAnimClass(currentNode.emotion) : ''}`}
+                                alt="女主角"
+                             />
+                          </div>      </div>
+
+      {/* 2. Bottom Area: Dialogue Box (Auto Height) */}
+      <div 
+        className="relative w-full z-20 pointer-events-auto cursor-pointer flex-shrink-0"
+        onClick={handleNext}
+      >
+        <div className="w-full relative">
+           
+           {/* Name Tag */}
+           <div className={`absolute -top-4 left-0 ${d('lg:left-12')} bg-black text-white px-3 py-0.5 ${d('lg:px-6 lg:py-2')} text-[10px] ${d('lg:text-base')} font-bold tracking-widest uppercase transform skew-x-[-10deg] shadow-lg origin-bottom-left z-30`}>
+             <div className="skew-x-[10deg]">{currentNode.speaker === SpeakerType.HEROINE ? runtimeScript.heroineName : '我'}</div>
            </div>
-	         )}
 
-	         {/* Heroine (Right) */}
-	         <div 
-	           className={`absolute bottom-0 transition-all duration-500 ease-out origin-bottom
-	           ${hasProtagonist ? 'right-[2%]' : 'left-1/2 -translate-x-1/2'}
-	           ${heroineActive 
-	             ? 'z-10 scale-100 filter-none' 
-	             : 'z-0 scale-95 opacity-100'}`}
-	         >
-            <CrossfadeImage 
-               src={`data:image/png;base64,${assets.heroine[currentNode.emotion as keyof typeof assets.heroine] || assets.heroine.normal}`} 
-               className={`h-[88vh] ${d('lg:h-[105vh]')} object-contain drop-shadow-2xl ${heroineActive ? getSpriteAnimClass(currentNode.emotion) : ''}`}
-               alt="女主角"
-            />
-         </div>
+           {/* Text Container */}
+           <div className={`w-full border-t-2 ${d('lg:border-t-4')} border-black bg-white/95 backdrop-blur-md pt-2 pb-2 px-3 ${d('lg:pt-6 lg:pb-8 lg:px-24')} relative shadow-[0_-5px_20px_rgba(0,0,0,0.2)]`}>
+              <div className="w-full max-w-screen-2xl mx-auto">
+                {/* Text Font Size reduced to text-sm for mobile */}
+                <p className={`text-sm ${d('lg:text-3xl')} font-medium leading-tight ${d('lg:leading-relaxed')} text-gray-900`}>
+                   <Typewriter text={currentNode.textCN.trim()} speed={25} />
+                </p>
+                {currentNode.textJP && currentNode.speaker === SpeakerType.HEROINE && (
+                  <p className={`text-[9px] ${d('lg:text-base')} text-gray-500 mt-0.5 ${d('lg:mt-3')} font-mono-tech tracking-wide border-l-2 border-gray-300 pl-1 ${d('lg:pl-3')}`}>
+                    {currentNode.textJP}
+                  </p>
+                )}
+              </div>
+           </div>
+           
+           {/* Next Indicator */}
+           {!currentNode.choices && currentNode.nodeType !== 'user_choice' && (
+             <div className={`absolute bottom-1 right-2 ${d('lg:bottom-4 lg:right-16')} animate-bounce text-black font-black text-sm ${d('lg:text-3xl')} opacity-50 z-50`}>
+               ▼
+             </div>
+           )}
+        </div>
       </div>
-
+      
       {/* Choices Overlay (Z-60) */}
       {currentNode.choices && !isUserChoiceNode && (
         <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center p-4 animate-fade-in">
@@ -1125,8 +1162,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
                     className={`
                       relative group w-full lg:w-[90%] py-4 px-8 
                       flex items-center justify-center transition-all duration-300 ease-out
-                      ${isThisLoading ? 'opacity-100 scale-105' : 'hover:scale-105 hover:bg-white/10'}
-                    `}
+                      ${isThisLoading ? 'opacity-100 scale-105' : 'hover:scale-105 hover:bg-white/10'}`}
                   >
                     {/* Glass Background */}
                     <div className="absolute inset-0 bg-black/40 border border-white/10 skew-x-[-12deg] group-hover:bg-black/60 group-hover:border-white/40 transition-all duration-300 backdrop-blur-sm shadow-lg" />
@@ -1213,44 +1249,6 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
             {saveMessage}
         </div>
       )}
-
-      {/* Dialogue Box Container (Z-20) - ON TOP OF SPRITES */}
-      {/* Positioned at absolute bottom, height determines itself based on content */}
-      <div 
-        className="absolute bottom-0 left-0 w-full z-20 pointer-events-auto cursor-pointer"
-        onClick={handleNext}
-      >
-        <div className="w-full relative">
-           
-           {/* Name Tag - Adjusted to sit nicely above the border */}
-           <div className={`absolute -top-4 left-0 ${d('lg:left-12')} bg-black text-white px-3 py-0.5 ${d('lg:px-6 lg:py-2')} text-[10px] ${d('lg:text-base')} font-bold tracking-widest uppercase transform skew-x-[-10deg] shadow-lg origin-bottom-left z-30`}>
-             <div className="skew-x-[10deg]">{currentNode.speaker === SpeakerType.HEROINE ? runtimeScript.heroineName : '我'}</div>
-           </div>
-
-           {/* Text Container */}
-           {/* h-auto + pb-2 means it only takes up necessary space. No fixed min-height. */}
-           <div className={`w-full border-t-2 ${d('lg:border-t-4')} border-black bg-white/95 backdrop-blur-md pt-2 pb-2 px-3 ${d('lg:pt-6 lg:pb-8 lg:px-24')} relative shadow-[0_-5px_20px_rgba(0,0,0,0.2)]`}>
-              <div className="w-full max-w-screen-2xl mx-auto">
-                {/* Text Font Size reduced to text-sm for mobile */}
-                <p className={`text-sm ${d('lg:text-3xl')} font-medium leading-tight ${d('lg:leading-relaxed')} text-gray-900`}>
-                   <Typewriter text={currentNode.textCN.trim()} speed={25} />
-                </p>
-                {currentNode.textJP && currentNode.speaker === SpeakerType.HEROINE && (
-                  <p className={`text-[9px] ${d('lg:text-base')} text-gray-500 mt-0.5 ${d('lg:mt-3')} font-mono-tech tracking-wide border-l-2 border-gray-300 pl-1 ${d('lg:pl-3')}`}>
-                    {currentNode.textJP}
-                  </p>
-                )}
-              </div>
-           </div>
-           
-           {/* Next Indicator */}
-           {!currentNode.choices && currentNode.nodeType !== 'user_choice' && (
-             <div className={`absolute bottom-1 right-2 ${d('lg:bottom-4 lg:right-16')} animate-bounce text-black font-black text-sm ${d('lg:text-3xl')} opacity-50 z-50`}>
-               ▼
-             </div>
-           )}
-        </div>
-      </div>
     </div>
   );
 };
