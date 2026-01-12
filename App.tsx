@@ -27,11 +27,6 @@ import { stripAssetBase64Map, warmUpBackgroundRemoval } from './services/imageCu
 import { listGenerationJobs, retryGenerationJob, type GenerationJobSummary } from './services/generationJobService';
 import { deleteSave, getSaveList, saveGame } from './services/storageService';
 
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
-};
-
 const toDataUrl = (base64: string) => {
   const trimmed = typeof base64 === 'string' ? base64.trim() : '';
   if (!trimmed) return '';
@@ -132,12 +127,9 @@ const App: React.FC = () => {
   const [publishLink, setPublishLink] = useState<string | null>(null);
   const publishTimerRef = useRef<number | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const [showIosPrompt, setShowIosPrompt] = useState(false);
   const [isPortrait, setIsPortrait] = useState(false);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
-  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
-  const [showAndroidPrompt, setShowAndroidPrompt] = useState(false);
   
   const [currentScript, setCurrentScript] = useState<GameScript | null>(null);
   const [currentAssets, setCurrentAssets] = useState<GeneratedAssets | null>(null);
@@ -165,64 +157,7 @@ const App: React.FC = () => {
   const modnetWarmupRef = useRef(false);
   const coins = accountUser?.coins ?? 0;
   const forceLandscapeOnMobile =
-    gameState === GameState.PLAYING && isTouchDevice && isPortrait && !showIosPrompt;
-
-  const iosPromptOverlay = showIosPrompt ? (
-    <div className="fixed inset-0 z-[30000] bg-black/80 text-white flex items-center justify-center p-6 overlay-fade-in">
-      <div className="bg-white text-black max-w-md w-full border-4 border-black shadow-2xl p-6 space-y-4 relative modal-scale-in">
-        <h3 className="text-2xl font-black leading-tight">在苹果手机上三步安装到主屏幕</h3>
-        <ol className="space-y-2 text-sm leading-relaxed list-decimal list-inside mt-2">
-          <li>
-            请用 <span className="font-bold">苹果自带浏览器</span> 打开这个页面（不要用微信/QQ 浏览器）。
-          </li>
-          <li>
-            在屏幕底部中间，点
-            <span className="font-bold">“分享”按钮（方框 + 向上箭头），然后下滑</span>。
-          </li>
-          <li>
-            在菜单里点 <span className="font-bold">“添加到主屏幕”</span> → 右上角 <span className="font-bold">“添加”</span>，
-            回到桌面从新图标进入游戏。
-          </li>
-        </ol>
-        <p className="text-xs font-mono-tech text-gray-500 mt-2">
-          建议使用苹果自带浏览器并添加到主屏幕，以获得更完整的音频与全屏体验
-        </p>
-        <Button
-          onClick={() => setShowIosPrompt(false)}
-          className="w-full"
-        >
-          我已添加到主屏幕
-        </Button>
-      </div>
-    </div>
-  ) : null;
-
-  function dismissAndroidPrompt() {
-    setShowAndroidPrompt(false);
-  }
-
-  const androidPromptOverlay = showAndroidPrompt && !isStandalone ? (
-    <div className="fixed inset-0 z-[26000] bg-black/80 text-white flex items-center justify-center p-6 overlay-fade-in">
-      <div className="bg-white text-black max-w-md w-full border-4 border-black shadow-2xl p-6 space-y-4 relative modal-scale-in">
-        <h3 className="text-2xl font-black uppercase leading-tight">安装到主屏幕</h3>
-        <p className="text-sm leading-relaxed text-gray-800">
-          检测到安卓设备，可一键添加网页到主屏幕，获得全屏体验。
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Button onClick={handleAndroidInstall} className="w-full">
-            立即安装
-          </Button>
-          <Button
-            onClick={dismissAndroidPrompt}
-            className="w-full bg-gray-200 text-black hover:bg-gray-300 border border-black/20"
-          >
-            稍后再说
-          </Button>
-        </div>
-        <p className="text-[11px] font-mono-tech text-gray-500">可安装到桌面，后续可从桌面图标直接打开</p>
-      </div>
-    </div>
-  ) : null;
+    gameState === GameState.PLAYING && isTouchDevice && isPortrait;
 
   useEffect(() => {
     let cancelled = false;
@@ -286,17 +221,13 @@ const App: React.FC = () => {
     };
     document.addEventListener('fullscreenchange', handleFsChange);
     
-    // 3. iOS Check (request Add-to-Home-Screen before use)
-    const ua = navigator.userAgent || '';
-    const isIos =
-      /iPad|iPhone|iPod/.test(ua) ||
-      (ua.includes('Mac') && (navigator as any).maxTouchPoints > 2 && 'ontouchend' in document);
-    const isStandaloneMode =
+    const UA = navigator.userAgent || '';
+    const IS_IOS =
+      /iPad|iPhone|iPod/.test(UA) ||
+      (UA.includes('Mac') && (navigator as any).maxTouchPoints > 2 && 'ontouchend' in document);
+    const IS_STANDALONE_MODE =
       window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
-    setIsStandalone(!!isStandaloneMode);
-    if (isIos && !isStandaloneMode) {
-      setShowIosPrompt(true);
-    }
+    setIsStandalone(!!IS_STANDALONE_MODE);
 
     // 4. Orientation Listener
     const checkOrientation = () => {
@@ -313,43 +244,6 @@ const App: React.FC = () => {
       document.removeEventListener('fullscreenchange', handleFsChange);
       window.removeEventListener('resize', checkOrientation);
       window.removeEventListener('orientationchange', checkOrientation);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const ua = navigator.userAgent || '';
-    const isAndroid = /Android/i.test(ua);
-
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker
-        .register('/service-worker.js')
-        .catch((err) => console.warn('Service worker registration failed', err));
-    }
-
-    const handleBeforeInstallPrompt = (event: Event) => {
-      const standalone =
-        window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
-      if (!isAndroid || standalone) return;
-      event.preventDefault();
-      const promptEvent = event as BeforeInstallPromptEvent;
-      setInstallPromptEvent(promptEvent);
-      setShowAndroidPrompt(true);
-    };
-
-    const handleAppInstalled = () => {
-      setInstallPromptEvent(null);
-      setShowAndroidPrompt(false);
-      setIsStandalone(true);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
-    window.addEventListener('appinstalled', handleAppInstalled);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
-      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
@@ -388,22 +282,6 @@ const App: React.FC = () => {
       }
     }
   };
-
-  function handleAndroidInstall() {
-    if (!installPromptEvent) return;
-    setShowAndroidPrompt(false);
-    installPromptEvent.prompt();
-    installPromptEvent.userChoice
-      .then((choice: any) => {
-        if (!choice || choice.outcome !== 'accepted') {
-          setInstallPromptEvent(null);
-        }
-      })
-      .catch((err: any) => {
-        console.warn('PWA install prompt failed', err);
-        setInstallPromptEvent(null);
-      });
-  }
 
   const handleLoggedIn = (user: AccountUser) => {
     setAccountUser(user);
@@ -851,10 +729,6 @@ const App: React.FC = () => {
 
   if (!isLoggedIn) return (
     <>
-      {/* iOS Prompt Overlay - Only show if not covered by rotation prompt or if in portrait but not playing */}
-      {iosPromptOverlay}
-      {androidPromptOverlay}
-
       <LoginScreen
         onLoggedIn={handleLoggedIn}
         onEnterPlazaAsGuest={() => {
@@ -870,9 +744,6 @@ const App: React.FC = () => {
   return (
     <div className="w-screen h-screen bg-[#f3f3f3] text-[#111] relative overflow-hidden flex font-sans">
       
-      {iosPromptOverlay}
-      {androidPromptOverlay}
-
       <BuyCoinsModal
         open={showBuyCoins}
         coins={coins}

@@ -85,14 +85,14 @@ const CrossfadeImage = ({ src, alt, className, style }: { src: string, alt: stri
           key={prevSrc}
           src={prevSrc} 
           alt={alt} 
-          className="col-start-1 row-start-1 w-auto h-full object-contain object-bottom animate-fade-out-overlap"
+          className="col-start-1 row-start-1 w-auto h-full object-contain object-bottom mx-auto animate-fade-out-overlap"
         />
       )}
       <img 
         key={currentSrc}
         src={currentSrc} 
         alt={alt} 
-        className={`col-start-1 row-start-1 w-auto h-full object-contain object-bottom ${prevSrc ? 'animate-fade-in-overlap' : ''}`}
+        className={`col-start-1 row-start-1 w-auto h-full object-contain object-bottom mx-auto ${prevSrc ? 'animate-fade-in-overlap' : ''}`}
       />
       <style jsx>{`
         .animate-fade-in-overlap {
@@ -1000,21 +1000,21 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
              {/* Protagonist (Left) */}
              {hasProtagonist && (
                <div 
-                 className={`absolute left-[2%] bottom-0 transition-all duration-500 ease-out origin-bottom
+                 className={`absolute left-[2%] bottom-0 h-full flex flex-col justify-end transition-all duration-500 ease-out origin-bottom
                  ${currentNode.speaker === SpeakerType.PROTAGONIST 
                    ? 'z-10 scale-100 filter-none' 
                    : 'z-0 scale-95 opacity-100'}`}
                >
                   <CrossfadeImage 
                      src={`data:image/png;base64,${assets.protagonist[currentNode.emotion as keyof typeof assets.protagonist] || assets.protagonist.normal}`} 
-                     className={`h-[78vh] ${d('lg:h-[92vh]')} max-h-[85vh] w-auto object-contain object-bottom drop-shadow-2xl ${currentNode.speaker === SpeakerType.PROTAGONIST ? getSpriteAnimClass(currentNode.emotion) : ''}`}
+                     className={`h-auto max-h-[90%] w-auto object-contain object-bottom drop-shadow-2xl ${currentNode.speaker === SpeakerType.PROTAGONIST ? getSpriteAnimClass(currentNode.emotion) : ''}`}
                      alt="主角"
                   />               </div>
              )}
 
                           {/* Heroine (Right) */}
                           <div 
-                            className={`absolute bottom-0 transition-all duration-500 ease-out origin-bottom
+                            className={`absolute bottom-0 h-full flex flex-col justify-end transition-all duration-500 ease-out origin-bottom
                             ${hasProtagonist ? 'right-[2%]' : 'left-1/2 -translate-x-1/2'}
                             ${heroineActive 
                               ? 'z-10 scale-100 filter-none' 
@@ -1022,7 +1022,7 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
                           >
                 <CrossfadeImage 
                    src={`data:image/png;base64,${assets.heroine[currentNode.emotion as keyof typeof assets.heroine] || assets.heroine.normal}`} 
-                   className={`h-[88vh] ${d('lg:h-[105vh]')} max-h-[90vh] w-auto object-contain object-bottom drop-shadow-2xl ${heroineActive ? getSpriteAnimClass(currentNode.emotion) : ''}`}
+                   className={`h-auto max-h-[100%] w-auto object-contain object-bottom drop-shadow-2xl ${heroineActive ? getSpriteAnimClass(currentNode.emotion) : ''}`}
                    alt="女主角"
                 />
                           </div>      </div>

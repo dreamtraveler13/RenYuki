@@ -27,6 +27,7 @@ const BuyCoinsModal: React.FC<Props> = ({ open, coins, onClose, onCoinsUpdated }
   const [payType, setPayType] = useState<PayType>('alipay');
   const [creating, setCreating] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [order, setOrder] = useState<PaymentOrder | null>(null);
@@ -43,6 +44,7 @@ const BuyCoinsModal: React.FC<Props> = ({ open, coins, onClose, onCoinsUpdated }
   const reset = () => {
     setCreating(false);
     setSyncing(false);
+    setRedirecting(false);
     setErrorMessage(null);
     setOrder(null);
     setPayUrl('');
@@ -54,7 +56,7 @@ const BuyCoinsModal: React.FC<Props> = ({ open, coins, onClose, onCoinsUpdated }
   };
 
   const create = async (packId: CoinPackId) => {
-    if (creating) return;
+    if (creating || redirecting) return;
     setCreating(true);
     setErrorMessage(null);
     try {
@@ -63,6 +65,10 @@ const BuyCoinsModal: React.FC<Props> = ({ open, coins, onClose, onCoinsUpdated }
       setPayUrl(resp.payUrl);
       if (typeof window !== 'undefined') localStorage.setItem(PENDING_ORDER_KEY, resp.order.outTradeNo);
       setPendingOutTradeNo(resp.order.outTradeNo);
+      if (typeof window !== 'undefined') {
+        setRedirecting(true);
+        window.location.assign(resp.payUrl);
+      }
     } catch (err: any) {
       setErrorMessage(err?.message || '创建订单失败');
     } finally {
@@ -181,7 +187,7 @@ const BuyCoinsModal: React.FC<Props> = ({ open, coins, onClose, onCoinsUpdated }
         
                         onClick={() => create(p.id)}
         
-                        disabled={creating}
+                        disabled={creating || redirecting}
         
                         className="group relative text-left border border-gray-300 hover:border-black transition-all p-4 active:bg-gray-50"
         
@@ -256,10 +262,6 @@ const BuyCoinsModal: React.FC<Props> = ({ open, coins, onClose, onCoinsUpdated }
                           <a
         
                             href={payUrl || '#'}
-        
-                            target="_blank"
-        
-                            rel="noreferrer"
         
                             className={`flex items-center justify-center border border-black text-xs font-bold uppercase py-3 transition-colors ${
         
