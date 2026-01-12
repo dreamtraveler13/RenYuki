@@ -60,6 +60,55 @@ const toImageDataUrl = (base64: string) => {
   return `data:${mime};base64,${b64}`;
 };
 
+const ParticleSystem = () => {
+  // Generate stable random values for low-density dust particles
+  const particles = useMemo(() => {
+    return Array.from({ length: 35 }).map((_, i) => ({
+      id: i,
+      left: `${Math.random() * 100}%`,
+      top: `${Math.random() * 100}%`,
+      size: `${Math.random() * 3 + 1}px`,
+      duration: `${Math.random() * 10 + 10}s`,
+      delay: `${Math.random() * 5}s`,
+      opacity: Math.random() * 0.4 + 0.1,
+    }));
+  }, []);
+
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
+      {particles.map((p) => (
+        <div
+          key={p.id}
+          className="absolute rounded-full bg-white animate-float-particle"
+          style={{
+            left: p.left,
+            top: p.top,
+            width: p.size,
+            height: p.size,
+            opacity: p.opacity,
+            animationDuration: p.duration,
+            animationDelay: p.delay,
+          }}
+        />
+      ))}
+      <style jsx>{`
+        @keyframes floatParticle {
+          0% { transform: translateY(0) translateX(0); opacity: 0; }
+          20% { opacity: var(--tw-opacity); }
+          50% { transform: translateY(-20px) translateX(10px); }
+          80% { opacity: var(--tw-opacity); }
+          100% { transform: translateY(-40px) translateX(-10px); opacity: 0; }
+        }
+        .animate-float-particle {
+          animation-name: floatParticle;
+          animation-timing-function: ease-in-out;
+          animation-iteration-count: infinite;
+        }
+      `}</style>
+    </div>
+  );
+};
+
 const CrossfadeImage = ({ src, alt, className, style }: { src: string, alt: string, className: string, style?: React.CSSProperties }) => {
   const [prevSrc, setPrevSrc] = useState<string | null>(null);
   const [currentSrc, setCurrentSrc] = useState(src);
@@ -956,6 +1005,11 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
              />
           </div>
         )}
+      </div>
+      
+      {/* Atmosphere / Dust Overlay (Z-20, above chars) */}
+      <div className="absolute inset-0 z-20 pointer-events-none">
+         <ParticleSystem />
       </div>
 
       {/* Love Meter / Stats (Z-50) */}
