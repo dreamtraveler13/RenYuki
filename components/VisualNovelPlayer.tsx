@@ -1005,11 +1005,11 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
                    ? 'z-10 scale-100 filter-none' 
                    : 'z-0 scale-95 opacity-100'}`}
                >
-                                    <CrossfadeImage 
-                                       src={`data:image/png;base64,${assets.protagonist[currentNode.emotion as keyof typeof assets.protagonist] || assets.protagonist.normal}`} 
-                                       className={`h-[78vh] ${d('lg:h-[92vh]')} max-h-[85%] object-contain object-bottom drop-shadow-2xl ${currentNode.speaker === SpeakerType.PROTAGONIST ? getSpriteAnimClass(currentNode.emotion) : ''}`}
-                                       alt="主角"
-                                    />               </div>
+                  <CrossfadeImage 
+                     src={`data:image/png;base64,${assets.protagonist[currentNode.emotion as keyof typeof assets.protagonist] || assets.protagonist.normal}`} 
+                     className={`h-[78vh] ${d('lg:h-[92vh]')} max-h-[85vh] w-auto object-contain object-bottom drop-shadow-2xl ${currentNode.speaker === SpeakerType.PROTAGONIST ? getSpriteAnimClass(currentNode.emotion) : ''}`}
+                     alt="主角"
+                  />               </div>
              )}
 
                           {/* Heroine (Right) */}
@@ -1020,11 +1020,11 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
                               ? 'z-10 scale-100 filter-none' 
                               : 'z-0 scale-95 opacity-100'}`}
                           >
-                             <CrossfadeImage 
-                                src={`data:image/png;base64,${assets.heroine[currentNode.emotion as keyof typeof assets.heroine] || assets.heroine.normal}`} 
-                                className={`h-[88vh] ${d('lg:h-[105vh]')} max-h-[95%] object-contain object-bottom drop-shadow-2xl ${heroineActive ? getSpriteAnimClass(currentNode.emotion) : ''}`}
-                                alt="女主角"
-                             />
+                <CrossfadeImage 
+                   src={`data:image/png;base64,${assets.heroine[currentNode.emotion as keyof typeof assets.heroine] || assets.heroine.normal}`} 
+                   className={`h-[88vh] ${d('lg:h-[105vh]')} max-h-[90vh] w-auto object-contain object-bottom drop-shadow-2xl ${heroineActive ? getSpriteAnimClass(currentNode.emotion) : ''}`}
+                   alt="女主角"
+                />
                           </div>      </div>
 
       {/* 2. Bottom Area: Dialogue Box (Auto Height) */}
