@@ -24,7 +24,7 @@ import { authLogout, authMe } from './services/accountService';
 import { publishPlazaGame } from './services/plazaService';
 import { getGameGenerationJob, getGameGenerationJobWithProgress, type TransferProgress } from './services/aiService';
 import { stripAssetBase64Map, warmUpBackgroundRemoval } from './services/imageCutout';
-import { listGenerationJobs, retryGenerationJob, type GenerationJobSummary } from './services/generationJobService';
+import { listGenerationJobs, markGenerationJobDownloaded, retryGenerationJob, type GenerationJobSummary } from './services/generationJobService';
 import { deleteSave, getSaveList, saveGame } from './services/storageService';
 
 const toDataUrl = (base64: string) => {
@@ -155,6 +155,7 @@ const App: React.FC = () => {
   const [lastFailedJob, setLastFailedJob] = useState<GenerationJobSummary | null>(null);
   const pollInFlightRef = useRef(false);
   const modnetWarmupRef = useRef(false);
+  const autoDownloadInFlightRef = useRef(false);
   const coins = accountUser?.coins ?? 0;
   const forceLandscapeOnMobile =
     gameState === GameState.PLAYING && isTouchDevice && isPortrait;
@@ -458,6 +459,51 @@ const App: React.FC = () => {
     const [saves, jobs] = await Promise.all([getSaveList(), listGenerationJobs()]);
     setSaveList(saves);
     setGenerationJobs(jobs);
+
+    if (autoDownloadInFlightRef.current) return;
+    const candidates = jobs.filter((j) => j.status === 'completed' && !j.downloadedAt);
+    if (candidates.length === 0) return;
+    if (pendingGenerationJobId) return;
+
+    autoDownloadInFlightRef.current = true;
+    try {
+      for (const job of candidates.slice(0, 3)) {
+        try {
+          const full = await getGameGenerationJobWithProgress(job.id, { includeResult: true }, () => {});
+          const result = full.result;
+          if (!result) continue;
+
+          let finalAssets: GeneratedAssets = result.assets;
+          try {
+            const protagonist = await stripAssetBase64Map(result.assets.protagonist, () => {});
+            const heroine = await stripAssetBase64Map(result.assets.heroine, () => {});
+            finalAssets = {
+              ...result.assets,
+              protagonist,
+              heroine,
+              music: result.assets.music || {},
+              voice: result.assets.voice || {},
+            };
+          } catch {
+            finalAssets = {
+              ...result.assets,
+              music: result.assets.music || {},
+              voice: result.assets.voice || {},
+            };
+          }
+
+          await saveGame(result.script, finalAssets, result.userProfile, result.initialNodeId, result.initialAffinity);
+          await markGenerationJobDownloaded(job.id).catch(() => {});
+        } catch {}
+      }
+
+      try {
+        const nextSaves = await getSaveList();
+        setSaveList(nextSaves);
+      } catch {}
+    } finally {
+      autoDownloadInFlightRef.current = false;
+    }
   };
 
   useEffect(() => {
@@ -624,6 +670,7 @@ const App: React.FC = () => {
         }
 
         if (status.state === 'completed') {
+          const finishedJobId = pendingGenerationJobId;
           setResultDownloadProgress({ loaded: 0, total: null, percent: 0 });
           const full = await getGameGenerationJobWithProgress(
             pendingGenerationJobId,
@@ -647,6 +694,9 @@ const App: React.FC = () => {
           setPendingGenerationJobId(null);
           setPostProcessProgress(null);
           await finalizeAndStartGame(result, full.resultSaveId);
+          if (finishedJobId) {
+            void markGenerationJobDownloaded(finishedJobId).catch(() => {});
+          }
           try {
             await refreshMemory();
           } catch {}

@@ -50,6 +50,7 @@ export type GenerationJobSummary = {
   refundedAt?: string;
   coinCost: number;
   resultSaveId?: number;
+  downloadedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -61,6 +62,13 @@ export const listGenerationJobs = async (): Promise<GenerationJobSummary[]> => {
 
 export const retryGenerationJob = async (id: string): Promise<{ jobId: string }> => {
   return await requestJson<{ jobId: string }>('/api/generation-jobs/retry', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  });
+};
+
+export const markGenerationJobDownloaded = async (id: string): Promise<{ ok: true; downloadedAt: string | null }> => {
+  return await requestJson<{ ok: true; downloadedAt: string | null }>('/api/generation-jobs/mark-downloaded', {
     method: 'POST',
     body: JSON.stringify({ id }),
   });

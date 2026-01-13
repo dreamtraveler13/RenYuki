@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
     refundedAt: job.refundedAt,
     coinCost: job.coinCost,
     resultSaveId: job.resultSaveId,
+    downloadedAt: job.downloadedAt,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
   }));

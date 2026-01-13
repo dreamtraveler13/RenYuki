@@ -15,11 +15,22 @@ export type GenerationJobRecord = {
   coinCost: number;
   refundedAt?: string;
   resultSaveId?: number;
+  downloadedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
 
 const TTL_MS = 10 * 60 * 1000;
+
+let ensuredDownloadedAtColumn = false;
+const ensureDownloadedAtColumn = async () => {
+  if (ensuredDownloadedAtColumn) return;
+  const db = await getDb();
+  try {
+    await db.query('ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS downloaded_at timestamptz');
+  } catch {}
+  ensuredDownloadedAtColumn = true;
+};
 
 const rowToRecord = (row: any): GenerationJobRecord => ({
   id: String(row.id),
@@ -32,6 +43,7 @@ const rowToRecord = (row: any): GenerationJobRecord => ({
   coinCost: Number(row.coin_cost) || 0,
   refundedAt: row.refunded_at ? new Date(row.refunded_at).toISOString() : undefined,
   resultSaveId: row.result_save_id ? Number(row.result_save_id) : undefined,
+  downloadedAt: row.downloaded_at ? new Date(row.downloaded_at).toISOString() : undefined,
   createdAt: new Date(row.created_at).toISOString(),
   updatedAt: new Date(row.updated_at).toISOString(),
 });
@@ -43,6 +55,7 @@ export const createGenerationJobRecord = async (params: {
   coinCost: number;
   message: string;
 }): Promise<GenerationJobRecord> => {
+  await ensureDownloadedAtColumn();
   const db = await getDb();
   const now = new Date().toISOString();
   const { rows } = await db.query(
@@ -73,6 +86,7 @@ export const updateGenerationJobRecord = async (
   id: string,
   patch: Partial<Omit<GenerationJobRecord, 'id' | 'userId' | 'input' | 'createdAt'>>
 ): Promise<GenerationJobRecord | null> => {
+  await ensureDownloadedAtColumn();
   const db = await getDb();
   const now = new Date().toISOString();
   const { rows } = await db.query(
@@ -84,7 +98,8 @@ export const updateGenerationJobRecord = async (
           error = COALESCE($6, error),
           refunded_at = COALESCE($7, refunded_at),
           result_save_id = COALESCE($8, result_save_id),
-          updated_at = $9
+          downloaded_at = COALESCE($9, downloaded_at),
+          updated_at = $10
       WHERE id = $1 AND user_id = $2
       RETURNING *
     `,
@@ -97,6 +112,7 @@ export const updateGenerationJobRecord = async (
       patch.error || null,
       patch.refundedAt ? new Date(patch.refundedAt).toISOString() : null,
       typeof patch.resultSaveId === 'number' ? patch.resultSaveId : null,
+      patch.downloadedAt ? new Date(patch.downloadedAt).toISOString() : null,
       now,
     ]
   );
@@ -104,6 +120,7 @@ export const updateGenerationJobRecord = async (
 };
 
 export const getGenerationJobRecord = async (userId: string, id: string): Promise<GenerationJobRecord | null> => {
+  await ensureDownloadedAtColumn();
   const db = await getDb();
   const { rows } = await db.query('SELECT * FROM generation_jobs WHERE id = $1 AND user_id = $2', [id, userId]);
   return rows[0] ? rowToRecord(rows[0]) : null;
@@ -141,6 +158,7 @@ const expireStaleJobs = async (userId: string) => {
 };
 
 export const listGenerationJobs = async (userId: string): Promise<GenerationJobRecord[]> => {
+  await ensureDownloadedAtColumn();
   await expireStaleJobs(userId);
   const db = await getDb();
   const { rows } = await db.query(
@@ -153,4 +171,21 @@ export const listGenerationJobs = async (userId: string): Promise<GenerationJobR
     [userId]
   );
   return rows.map(rowToRecord);
+};
+
+export const markGenerationJobDownloaded = async (userId: string, id: string): Promise<GenerationJobRecord | null> => {
+  await ensureDownloadedAtColumn();
+  const db = await getDb();
+  const now = new Date().toISOString();
+  const { rows } = await db.query(
+    `
+      UPDATE generation_jobs
+      SET downloaded_at = COALESCE(downloaded_at, $3),
+          updated_at = $3
+      WHERE id = $1 AND user_id = $2
+      RETURNING *
+    `,
+    [id, userId, now]
+  );
+  return rows[0] ? rowToRecord(rows[0]) : null;
 };

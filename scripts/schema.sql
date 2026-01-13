@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS generation_jobs (
   coin_cost integer NOT NULL DEFAULT 0,
   refunded_at timestamptz,
   result_save_id bigint,
+  downloaded_at timestamptz,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
 );
