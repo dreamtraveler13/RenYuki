@@ -15,6 +15,7 @@ import { refundUserCoins } from '@/lib/userStore';
 import { generateHeroineTts } from '@/lib/ttsServer';
 import { createGenerationJobRecord, updateGenerationJobRecord } from '@/lib/generationJobStore';
 import { createSave } from '@/lib/saveStore';
+import { stripAssetBase64MapServer } from '@/lib/imageCutoutServer';
 
 export interface StartGameGenerationInput {
   protagonistName?: string;
@@ -323,19 +324,22 @@ const buildGamePayload = async (
     voicePromise,
   ]);
 
-  await onUpdate({ progress: 94, message: '正在整理生成结果' });
+  await onUpdate({ progress: 94, message: '正在处理立绘透明背景（服务器）' });
+
+  const cleanedProtagonist = await stripAssetBase64MapServer(protagonist as any);
+  const cleanedHeroine = await stripAssetBase64MapServer(heroine as any);
 
   const userProfile: UserProfile = {
     name: protagonistName,
     avatarBase64:
       input.protagonistPhotoBase64 ||
       input.heroinePhotoBase64 ||
-      String((protagonist as any).normal || ''),
+      String((cleanedProtagonist as any).normal || ''),
   };
 
   const assets: GeneratedAssets = {
-    protagonist: protagonist as any,
-    heroine: heroine as any,
+    protagonist: cleanedProtagonist as any,
+    heroine: cleanedHeroine as any,
     backgrounds,
     music: {},
     voice,

@@ -1490,10 +1490,10 @@ Same face, hairstyle, age, sex.Do not change any facial features of the characte
 
 Wearing a black Japanese male DK school uniform (Gakuran).
 
-Half-body portrait, head to knees (upper legs visible).
+Half-body portrait, head to knees.
 Centered composition, eye-level view.
 
-Natural relaxed posture.
+Natural relaxed posture.Standing
 Simple pose suitable for dialogue scene.
 
 Pure white background (#FFFFFF).
@@ -1505,10 +1505,10 @@ Same face, hairstyle, age, sex.Do not change any facial features of the characte
 
 Wearing a black Japanese female JK school uniform (Seifuku).
 
-Half-body portrait, head to knees (upper legs visible).
+Half-body portrait, head to knees.
 Centered composition, eye-level view.
 
-Natural relaxed posture.
+Natural relaxed posture.Standing 
 Simple pose suitable for dialogue scene.
 
 Gentle feminine posture and expression.

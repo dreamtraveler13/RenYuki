@@ -23,7 +23,6 @@ import { deleteSaveServer } from './services/saveService';
 import { authLogout, authMe } from './services/accountService';
 import { publishPlazaGame } from './services/plazaService';
 import { getGameGenerationJob, getGameGenerationJobWithProgress, type TransferProgress } from './services/aiService';
-import { stripAssetBase64Map, warmUpBackgroundRemoval } from './services/imageCutout';
 import { listGenerationJobs, markGenerationJobDownloaded, retryGenerationJob, type GenerationJobSummary } from './services/generationJobService';
 import { deleteSave, getSaveList, saveGame } from './services/storageService';
 
@@ -149,12 +148,9 @@ const App: React.FC = () => {
   const [pendingGenerationJobId, setPendingGenerationJobId] = useState<string | null>(null);
   const [pendingGenerationStatus, setPendingGenerationStatus] = useState<GameGenerationJobStatus | null>(null);
   const [pendingGenerationError, setPendingGenerationError] = useState<string | null>(null);
-  const [clientPostProcessing, setClientPostProcessing] = useState(false);
-  const [postProcessProgress, setPostProcessProgress] = useState<{ done: number; total: number } | null>(null);
   const [resultDownloadProgress, setResultDownloadProgress] = useState<TransferProgress | null>(null);
   const [lastFailedJob, setLastFailedJob] = useState<GenerationJobSummary | null>(null);
   const pollInFlightRef = useRef(false);
-  const modnetWarmupRef = useRef(false);
   const autoDownloadInFlightRef = useRef(false);
   const coins = accountUser?.coins ?? 0;
   const forceLandscapeOnMobile =
@@ -188,7 +184,6 @@ const App: React.FC = () => {
         if (jobId && typeof jobId === 'string' && jobId.trim().length > 0) {
           setPendingGenerationJobId(jobId);
           setPendingGenerationError(null);
-          setClientPostProcessing(false);
           setShowLoadMenu(true);
           void (async () => {
             try {
@@ -420,7 +415,6 @@ const App: React.FC = () => {
     setPendingGenerationJobId(null);
     setPendingGenerationStatus(null);
     setPendingGenerationError(null);
-    setClientPostProcessing(false);
     setGenerationJobs([]);
     resetGame();
   };
@@ -473,24 +467,11 @@ const App: React.FC = () => {
           const result = full.result;
           if (!result) continue;
 
-          let finalAssets: GeneratedAssets = result.assets;
-          try {
-            const protagonist = await stripAssetBase64Map(result.assets.protagonist, () => {});
-            const heroine = await stripAssetBase64Map(result.assets.heroine, () => {});
-            finalAssets = {
-              ...result.assets,
-              protagonist,
-              heroine,
-              music: result.assets.music || {},
-              voice: result.assets.voice || {},
-            };
-          } catch {
-            finalAssets = {
-              ...result.assets,
-              music: result.assets.music || {},
-              voice: result.assets.voice || {},
-            };
-          }
+          const finalAssets: GeneratedAssets = {
+            ...result.assets,
+            music: result.assets.music || {},
+            voice: result.assets.voice || {},
+          };
 
           await saveGame(result.script, finalAssets, result.userProfile, result.initialNodeId, result.initialAffinity);
           await markGenerationJobDownloaded(job.id).catch(() => {});
@@ -555,12 +536,6 @@ const App: React.FC = () => {
     setPendingGenerationJobId(jobId);
     setPendingGenerationStatus(null);
     setPendingGenerationError(null);
-    setClientPostProcessing(false);
-    setPostProcessProgress(null);
-    if (!modnetWarmupRef.current) {
-      modnetWarmupRef.current = true;
-      void warmUpBackgroundRemoval();
-    }
     try {
       window.localStorage.setItem(PENDING_JOB_KEY, jobId);
     } catch {}
@@ -571,43 +546,8 @@ const App: React.FC = () => {
   };
 
   const finalizeAndStartGame = async (payload: GameGenerationResult, saveId?: number) => {
-    setClientPostProcessing(true);
-    const countUniqueImages = (obj: Record<string, any>) =>
-      new Set(
-        Object.values(obj || {}).filter((v) => typeof v === 'string' && v.trim().length > 0) as string[]
-      ).size;
-    const totalImages = countUniqueImages(payload.assets.protagonist || {}) + countUniqueImages(payload.assets.heroine || {});
-    if (totalImages > 0) {
-      setPostProcessProgress({ done: 0, total: totalImages });
-    } else {
-      setPostProcessProgress(null);
-    }
-    setPendingGenerationStatus((prev) =>
-      prev
-        ? { ...prev, progress: Math.max(prev.progress, 95), message: '正在处理立绘透明背景（本地）' }
-        : prev
-    );
-
-    await warmUpBackgroundRemoval();
-
-    let processed = 0;
-    const bumpProgress = () => {
-      if (totalImages <= 0) return;
-      processed += 1;
-      setPostProcessProgress({ done: processed, total: totalImages });
-      const pct = 95 + Math.round((processed / totalImages) * 5);
-      setPendingGenerationStatus((prev) =>
-        prev ? { ...prev, progress: Math.max(prev.progress, pct), message: `正在处理立绘透明背景（${processed}/${totalImages}）` } : prev
-      );
-    };
-
-    const protagonist = await stripAssetBase64Map(payload.assets.protagonist, bumpProgress);
-    const heroine = await stripAssetBase64Map(payload.assets.heroine, bumpProgress);
-
     const finalAssets: GeneratedAssets = {
       ...payload.assets,
-      protagonist,
-      heroine,
       music: payload.assets.music || {},
       voice: payload.assets.voice || {},
     };
@@ -626,7 +566,6 @@ const App: React.FC = () => {
     }
 
     setShowLoadMenu(false);
-    setPostProcessProgress(null);
     proceedToGame(payload.script, finalAssets, payload.userProfile, payload.initialNodeId, payload.initialAffinity);
   };
 
@@ -660,8 +599,6 @@ const App: React.FC = () => {
             window.localStorage.removeItem(PENDING_JOB_KEY);
           } catch {}
           setPendingGenerationJobId(null);
-          setClientPostProcessing(false);
-          setPostProcessProgress(null);
           setResultDownloadProgress(null);
           try {
             await refreshMemory();
@@ -692,7 +629,6 @@ const App: React.FC = () => {
             window.localStorage.removeItem(PENDING_JOB_KEY);
           } catch {}
           setPendingGenerationJobId(null);
-          setPostProcessProgress(null);
           await finalizeAndStartGame(result, full.resultSaveId);
           if (finishedJobId) {
             void markGenerationJobDownloaded(finishedJobId).catch(() => {});
@@ -703,10 +639,6 @@ const App: React.FC = () => {
           return;
         }
 
-        if (!modnetWarmupRef.current) {
-          modnetWarmupRef.current = true;
-          void warmUpBackgroundRemoval();
-        }
       } catch (err: any) {
         if (cancelled) return;
         const msg = err?.message || '生成状态查询失败';
@@ -716,8 +648,6 @@ const App: React.FC = () => {
             window.localStorage.removeItem(PENDING_JOB_KEY);
           } catch {}
           setPendingGenerationJobId(null);
-          setClientPostProcessing(false);
-          setPostProcessProgress(null);
           try {
             await refreshMemory();
           } catch {}
@@ -977,9 +907,7 @@ const App: React.FC = () => {
                                <div className="min-w-0">
                                  <div className="text-xs font-mono-tech text-gray-500">正在生成新的嘎拉（服务器）</div>
                                  <div className="text-sm lg:text-base font-semibold text-gray-900 mt-1">
-                                   {clientPostProcessing
-                                     ? '正在处理立绘透明背景（本地）'
-                                     : pendingGenerationStatus?.message || '排队中…'}
+                          {pendingGenerationStatus?.message || '排队中…'}
                                  </div>
                                </div>
                                <div className="text-xs font-mono-tech text-gray-600">
@@ -997,29 +925,7 @@ const App: React.FC = () => {
                              )}
                            </div>
                          )}
-                         {clientPostProcessing && postProcessProgress && (
-                           <div className="bg-white border border-black/10 rounded-2xl shadow-sm p-4 lg:p-6">
-                             <div className="flex items-start justify-between gap-4">
-                               <div className="min-w-0">
-                                 <div className="text-xs font-mono-tech text-gray-500">下载并处理资源</div>
-                                 <div className="text-sm lg:text-base font-semibold text-gray-900 mt-1">
-                                   正在处理立绘透明背景（{postProcessProgress.done}/{postProcessProgress.total}）
-                                 </div>
-                               </div>
-                               <div className="text-xs font-mono-tech text-gray-600">
-                                 {Math.round((postProcessProgress.done / Math.max(1, postProcessProgress.total)) * 100)}%
-                               </div>
-                             </div>
-                             <div className="mt-3 h-2 w-full bg-gray-200 rounded-full overflow-hidden">
-                               <div
-                                 className="h-full bg-black transition-all"
-                                 style={{
-                                   width: `${Math.round((postProcessProgress.done / Math.max(1, postProcessProgress.total)) * 100)}%`,
-                                 }}
-                               />
-                             </div>
-                           </div>
-                         )}
+
                          {resultDownloadProgress && (
                            <div className="bg-white border border-black/10 rounded-2xl shadow-sm p-4 lg:p-6">
                              <div className="flex items-start justify-between gap-4">
@@ -1150,7 +1056,7 @@ const App: React.FC = () => {
           />
         )}
 
-        {gameState === GameState.PLAYING && currentScript && currentAssets && currentUser && (
+        {(gameState === GameState.PLAYING || gameState === GameState.FINISHED) && currentScript && currentAssets && currentUser && (
           forceLandscapeOnMobile ? (
             <div className="absolute inset-0 z-50 bg-black">
               <div
@@ -1170,21 +1076,23 @@ const App: React.FC = () => {
                   initialNodeId={initialNodeId}
                   initialAffinity={initialAffinity}
                   onExit={resetGame}
+                  onGameEnd={() => setGameState(GameState.FINISHED)}
                   isTouchDevice={isTouchDevice}
                 />
               </div>
             </div>
           ) : (
             <div className="absolute inset-0 z-50">
-              <VisualNovelPlayer
-                script={currentScript}
-                assets={currentAssets}
-                userProfile={currentUser}
-                initialNodeId={initialNodeId}
-                initialAffinity={initialAffinity}
-                onExit={resetGame}
-                isTouchDevice={isTouchDevice}
-              />
+                <VisualNovelPlayer
+                  script={currentScript}
+                  assets={currentAssets}
+                  userProfile={currentUser}
+                  initialNodeId={initialNodeId}
+                  initialAffinity={initialAffinity}
+                  onExit={resetGame}
+                  onGameEnd={() => setGameState(GameState.FINISHED)}
+                  isTouchDevice={isTouchDevice}
+                />
             </div>
           )
         )}

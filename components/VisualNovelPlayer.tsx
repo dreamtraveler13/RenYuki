@@ -8,6 +8,7 @@ import CopyLinkModal from './CopyLinkModal';
 import { saveGame } from '../services/storageService';
 import { publishPlazaGame } from '../services/plazaService';
 import { generateHeroineVoice } from '../services/aiService';
+import { submitGameFeedback } from '../services/feedbackService';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const AUDIO_LIBRARY: Record<string, string> = {
@@ -188,6 +189,13 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
   const [currentBgmKey, setCurrentBgmKey] = useState<string | null>(null);
   const [continueError, setContinueError] = useState<string | null>(null);
   const [isContinuing, setIsContinuing] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackThanks, setFeedbackThanks] = useState(false);
+  const [pendingExit, setPendingExit] = useState(false);
   const [dialogueHistory, setDialogueHistory] = useState<Array<{ speaker: string; textCN: string }>>([]);
   const [newOptionText, setNewOptionText] = useState('');
   const [waitingForNodeId, setWaitingForNodeId] = useState<string | null>(null);
@@ -241,6 +249,13 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
     setIsContinuing(false);
     setContinuingChoiceIndex(null);
     setVoiceCache(assets.voice || {});
+    setFeedbackText('');
+    setFeedbackError(null);
+    setFeedbackSubmitting(false);
+    setFeedbackSubmitted(false);
+    setShowFeedbackModal(false);
+    setFeedbackThanks(false);
+    setPendingExit(false);
     voiceFetchRef.current = new Set();
   }, [script, initialNodeId, initialAffinity, assets.voice]);
 
@@ -588,6 +603,52 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
     }
   };
 
+  const handleSubmitFeedback = async () => {
+    const content = feedbackText.trim();
+    if (!content || feedbackSubmitting || feedbackSubmitted) return;
+    setFeedbackSubmitting(true);
+    setFeedbackError(null);
+    try {
+      await submitGameFeedback({
+        content,
+      });
+      setFeedbackSubmitted(true);
+      setShowFeedbackModal(false);
+      setFeedbackThanks(true);
+      if (pendingExit) {
+        setPendingExit(false);
+        onExit();
+      }
+    } catch (err: any) {
+      setFeedbackError(err?.message || '提交失败，请稍后再试');
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
+  const handleExitWithFeedback = () => {
+    if (!feedbackSubmitted) {
+      setPendingExit(true);
+      setShowFeedbackModal(true);
+      if (!gameEnded) {
+        setFeedbackError(null);
+      }
+      return;
+    }
+    onExit();
+  };
+
+  const handleCloseFeedbackModal = () => {
+    if (feedbackSubmitting) return;
+    setShowFeedbackModal(false);
+    if (pendingExit) {
+      setPendingExit(false);
+      onExit();
+      return;
+    }
+    setPendingExit(false);
+  };
+
   const handlePublishToPlaza = async () => {
     if (isPublishing) return;
     setIsPublishing(true);
@@ -894,14 +955,54 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
     }
   };
 
+  const feedbackModal = showFeedbackModal && (
+    <div className="absolute inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md bg-white border-2 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-5 space-y-4">
+        <div className="text-sm font-black tracking-tight">离开前写下你的体验</div>
+        <textarea
+          value={feedbackText}
+          onChange={(e) => {
+            setFeedbackText(e.target.value);
+            if (feedbackError) setFeedbackError(null);
+          }}
+          className="w-full border border-black/20 bg-white px-3 py-2 text-xs font-mono-tech text-gray-900 h-24 resize-none focus:outline-none focus:border-black"
+          placeholder="写下你的感受，让我们做得更好..."
+          disabled={feedbackSubmitting || feedbackSubmitted}
+        />
+        {feedbackError && <div className="text-[10px] text-red-600 font-mono-tech">{feedbackError}</div>}
+        <div className="grid grid-cols-1 gap-2">
+          <Button
+            onClick={handleSubmitFeedback}
+            className="w-full"
+            disabled={feedbackSubmitting || feedbackSubmitted || feedbackText.trim().length === 0}
+            isTouch={isTouchDevice}
+          >
+            {feedbackSubmitting ? '提交中...' : feedbackSubmitted ? '已提交' : '提交反馈'}
+          </Button>
+          <Button
+            onClick={handleCloseFeedbackModal}
+            variant="secondary"
+            className="w-full"
+            disabled={feedbackSubmitting}
+            isTouch={isTouchDevice}
+          >
+            稍后再写
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (!hasStarted) {
       return (
-          <div className="relative w-full h-full flex flex-col items-center justify-center bg-gray-100 z-50">
-               <div className="absolute inset-0 opacity-10 filter grayscale contrast-150">
-                 {Object.values(assets.backgrounds)[0] && (
-                     <img src={toImageDataUrl(Object.values(assets.backgrounds)[0])} className="w-full h-full object-cover" alt="" />
-                 )}
-               </div>
+      <div className="relative w-full h-full flex flex-col items-center justify-center bg-gray-100 z-50">
+           {feedbackModal}
+           <div className="absolute inset-0 opacity-10 filter grayscale contrast-150">
+             {Object.values(assets.backgrounds)[0] && (
+                 <img src={toImageDataUrl(Object.values(assets.backgrounds)[0])} className="w-full h-full object-cover" alt="" />
+             )}
+           </div>
+
                <div className={`z-10 text-center space-y-4 ${d('lg:space-y-6')}`}>
                    <h2 className={`text-2xl ${d('lg:text-4xl')} font-black tracking-tighter uppercase animate-float`}>准备就绪</h2>
                    {fullscreenError && (
@@ -928,42 +1029,48 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
       );
   }
 
-  if (gameEnded) {
-    return (
-      <div className="relative w-full h-full flex flex-col items-center justify-center bg-black overflow-hidden">
-         <div className="absolute inset-0 opacity-25">
-           {(currentBackground || Object.values(assets.backgrounds)[0]) && (
-             <img
-               src={toImageDataUrl(currentBackground || Object.values(assets.backgrounds)[0])}
-               className="w-full h-full object-cover"
-               alt="背景"
-             />
-           )}
-         </div>
-         <div className="absolute inset-0 bg-black/55" />
+   if (gameEnded) {
+     return (
+       <div className="relative w-full h-full flex flex-col items-center justify-center bg-black overflow-hidden">
+          {feedbackModal}
+          <div className="absolute inset-0 opacity-25">
+            {(currentBackground || Object.values(assets.backgrounds)[0]) && (
+              <img
+                src={toImageDataUrl(currentBackground || Object.values(assets.backgrounds)[0])}
+                className="w-full h-full object-cover"
+                alt="背景"
+              />
+            )}
+          </div>
+          <div className="absolute inset-0 bg-black/55" />
+ 
+          <div className={`relative z-10 bg-white/95 backdrop-blur-md p-6 ${d('lg:p-12')} border border-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] text-center max-w-lg animate-pop m-4`}>
+             <h1 className={`text-4xl ${d('lg:text-6xl')} font-black mb-4 ${d('lg:mb-6')} uppercase`}>完</h1>
+             <div className={`mb-4 ${d('lg:mb-8')} border-t border-b border-gray-200 py-4`}>
+                <p className={`text-[10px] ${d('lg:text-xs')} text-gray-500 font-mono-tech mb-2`}>好感度</p>
+                <div className={`text-6xl ${d('lg:text-8xl')} font-black`}>{affinity}%</div>
+             </div>
+             <div className="space-y-4">
+                 {feedbackThanks && (
+                   <div className="text-[10px] font-mono-tech text-green-700">感谢你的反馈！</div>
+                 )}
+                 <Button onClick={handlePublishToPlaza} className="w-full" disabled={isPublishing} isTouch={isTouchDevice}>
+                     {isPublishing ? "正在发布..." : "发布到嘎拉广场并复制分享链接"}
+                 </Button>
+                 {publishMessage && <p className="text-green-600 font-mono-tech text-xs">{publishMessage}</p>}
+                 <Button onClick={handleExitWithFeedback} variant="secondary" className="w-full" isTouch={isTouchDevice}>返回根目录</Button>
+             </div>
+          </div>
+       </div>
+     );
+   }
 
-         <div className={`relative z-10 bg-white/95 backdrop-blur-md p-6 ${d('lg:p-12')} border border-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] text-center max-w-lg animate-pop m-4`}>
-            <h1 className={`text-4xl ${d('lg:text-6xl')} font-black mb-4 ${d('lg:mb-6')} uppercase`}>完</h1>
-            <div className={`mb-4 ${d('lg:mb-8')} border-t border-b border-gray-200 py-4`}>
-               <p className={`text-[10px] ${d('lg:text-xs')} text-gray-500 font-mono-tech mb-2`}>好感度</p>
-               <div className={`text-6xl ${d('lg:text-8xl')} font-black`}>{affinity}%</div>
-            </div>
-            <div className="space-y-4">
-                <Button onClick={handlePublishToPlaza} className="w-full" disabled={isPublishing} isTouch={isTouchDevice}>
-                    {isPublishing ? "正在发布..." : "发布到嘎拉广场并复制分享链接"}
-                </Button>
-                {publishMessage && <p className="text-green-600 font-mono-tech text-xs">{publishMessage}</p>}
-                <Button onClick={onExit} variant="secondary" className="w-full" isTouch={isTouchDevice}>返回根目录</Button>
-            </div>
-         </div>
-      </div>
-    );
-  }
 
   if (!currentNode) return null;
 
   return (
     <div className="relative w-full h-full bg-black select-none font-sans flex flex-col">
+      {feedbackModal}
       <CopyLinkModal
         open={!!publishLink}
         url={publishLink || ''}
@@ -1293,9 +1400,10 @@ const VisualNovelPlayer: React.FC<Props> = ({ script, assets, userProfile, initi
          <Button variant="secondary" onClick={handleSaveGame} disabled={isSaving} isTouch={isTouchDevice} className={`!px-2 !py-1 ${d('lg:!px-4 lg:!py-2')} text-[10px] ${d('lg:text-xs')} bg-white/90 backdrop-blur`}>
             {isSaving ? "保存中…" : "保存"}
          </Button>
-         <Button variant="primary" onClick={onExit} isTouch={isTouchDevice} className={`!px-2 !py-1 ${d('lg:!px-4 lg:!py-2')} text-[10px] ${d('lg:text-xs')}`}>
-            退出
-         </Button>
+          <Button variant="primary" onClick={handleExitWithFeedback} isTouch={isTouchDevice} className={`!px-2 !py-1 ${d('lg:!px-4 lg:!py-2')} text-[10px] ${d('lg:text-xs')}`}>
+             退出
+          </Button>
+
       </div>
       
       {saveMessage && (

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@fingerprintjs/fingerprintjs": "^5.0.1",
+    "canvas": "^2.11.2",
     "minio": "^8.0.6",
     "next": "^14.2.18",
     "onnxruntime-web": "^1.18.0",
